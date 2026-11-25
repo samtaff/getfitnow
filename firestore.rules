@@ -1,0 +1,2470 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasAuthenticatedEmail() {
+      return isSignedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email is string &&
+        request.auth.token.email.size() >= 5;
+    }
+
+    function isVerifiedEmail() {
+      return hasAuthenticatedEmail() &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedEmail() &&
+        request.auth.token.email.lower() == 'davidfrosio@hotmail.fr';
+    }
+
+    function isCoach() {
+      return isBootstrappedAdmin() || (
+        hasAuthenticatedEmail() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true
+      );
+    }
+
+    function isCoachAdmin() {
+      return isBootstrappedAdmin() || (
+        hasAuthenticatedEmail() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'coach_admin'
+      );
+    }
+
+    function isAdmin() {
+      return isCoach();
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 5 &&
+        email.size() <= 120 &&
+        email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$');
+    }
+
+    function isValidEmailKey(emailKey) {
+      return emailKey is string &&
+        emailKey.size() >= 8 &&
+        emailKey.size() <= 48 &&
+        emailKey.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDiscipline(d) {
+      return d is string && d.size() >= 2 && d.size() <= 50;
+    }
+
+    function hasCapacityForBooking(eventData) {
+      return (eventData.get('isUnlimitedCapacity', false) == true) ||
+        (eventData.registeredCount < eventData.maxCapacity);
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidEvent(data) {
+      return data.keys().hasAll([
+        'title', 'discipline', 'description', 'location', 'city',
+        'hasCoords', 'lat', 'lng', 'coachName',
+        'startAt', 'durationMinutes', 'isUnlimitedCapacity', 'maxCapacity', 'registeredCount',
+        'lastRegId', 'status', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title', 'discipline', 'description', 'externalUrl', 'coverImageUrl', 'coverImagePosition', 'location', 'city', 'region',
+        'hasCoords', 'lat', 'lng', 'coachName', 'coachNames', 'coachUids',
+        'startAt', 'durationMinutes', 'isUnlimitedCapacity', 'maxCapacity', 'registeredCount',
+        'lastRegId', 'likesCount', 'lastLikeId', 'status', 'cancelReason', 'bookingCutoffMinutes', 'disableAutoClose',
+        'isPaid', 'priceCents', 'currency', 'paymentMode',
+        'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.title is string && data.title.size() >= 2 && data.title.size() <= 100 &&
+      isValidDiscipline(data.discipline) &&
+      data.description is string && data.description.size() <= 600 &&
+      (!('externalUrl' in data) || (
+        data.externalUrl is string &&
+        data.externalUrl.size() <= 500 &&
+        (data.externalUrl.size() == 0 || data.externalUrl.matches('^https?://[^\\s]+$'))
+      )) &&
+      (!('coverImageUrl' in data) || (
+        data.coverImageUrl is string &&
+        data.coverImageUrl.size() <= 200000
+      )) &&
+      (!('coverImagePosition' in data) || (
+        data.coverImagePosition is string &&
+        data.coverImagePosition.size() <= 20 &&
+        (
+          data.coverImagePosition.size() == 0 ||
+          data.coverImagePosition.matches('^[0-9]{1,3}% [0-9]{1,3}%$')
+        )
+      )) &&
+      data.location is string && data.location.size() >= 2 && data.location.size() <= 120 &&
+      data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+      (!('region' in data) || (data.region is string && data.region.size() <= 80)) &&
+      data.hasCoords is bool &&
+      data.lat is number && data.lat >= -90 && data.lat <= 90 &&
+      data.lng is number && data.lng >= -180 && data.lng <= 180 &&
+      data.coachName is string && data.coachName.size() >= 2 && data.coachName.size() <= 200 &&
+      (!('coachNames' in data) || (
+        data.coachNames is list &&
+        data.coachNames.size() >= 1 &&
+        data.coachNames.size() <= 10 &&
+        data.coachNames[0] is string &&
+        data.coachNames[0].size() >= 2 &&
+        data.coachNames[0].size() <= 80
+      )) &&
+      (!('coachUids' in data) || (
+        data.coachUids is list &&
+        data.coachUids.size() <= 10 &&
+        (data.coachUids.size() == 0 || isValidId(data.coachUids[0]))
+      )) &&
+      data.startAt is timestamp &&
+      data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 240 &&
+      data.isUnlimitedCapacity is bool &&
+      data.maxCapacity is int &&
+      data.registeredCount is int &&
+      data.registeredCount >= 0 &&
+      (
+        (data.isUnlimitedCapacity == true && data.maxCapacity == 0 && data.registeredCount <= 10000) ||
+        (data.isUnlimitedCapacity == false && data.maxCapacity >= 1 && data.maxCapacity <= 200 && data.registeredCount <= data.maxCapacity)
+      ) &&
+      isValidId(data.lastRegId) &&
+      (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0 && data.likesCount <= 100000)) &&
+      (!('lastLikeId' in data) || isValidId(data.lastLikeId)) &&
+      data.status in ['published', 'cancelled'] &&
+      (!('cancelReason' in data) || data.cancelReason in ['manual', 'no_registrants', '']) &&
+      (!('bookingCutoffMinutes' in data) || (data.bookingCutoffMinutes is int && data.bookingCutoffMinutes >= 0 && data.bookingCutoffMinutes <= 10080)) &&
+      (!('disableAutoClose' in data) || data.disableAutoClose is bool) &&
+      (!('isPaid' in data) || data.isPaid is bool) &&
+      (!('priceCents' in data) || (data.priceCents is int && data.priceCents >= 0 && data.priceCents <= 100000)) &&
+      (!('currency' in data) || data.currency == 'EUR') &&
+      (!('paymentMode' in data) || data.paymentMode in ['online', 'onsite', 'both']) &&
+      (
+        data.get('isPaid', false) == false
+          ? data.get('priceCents', 0) == 0
+          : (
+              data.get('priceCents', 0) >= 100 &&
+              data.get('priceCents', 0) <= 100000 &&
+              data.get('currency', 'EUR') == 'EUR' &&
+              data.get('paymentMode', 'online') in ['online', 'onsite', 'both']
+            )
+      ) &&
+      isValidId(data.createdBy) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll([
+        'eventId', 'eventTitle', 'eventStartAt', 'firstName', 'lastName',
+        'email', 'emailKey', 'attended', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'eventId', 'eventTitle', 'eventStartAt', 'eventDurationMinutes', 'eventEndAt',
+        'firstName', 'lastName', 'email', 'emailKey', 'attended', 'memberValidated',
+        'status',
+        'amountCents', 'currency', 'paymentStatus', 'paymentMethod',
+        'paymentReference', 'cardBrand', 'cardLast4', 'paidAt',
+        'isGuest', 'invitedByEmail', 'invitedByEmailKey', 'invitedByName',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.eventId) &&
+      data.eventTitle is string && data.eventTitle.size() >= 2 && data.eventTitle.size() <= 100 &&
+      data.eventStartAt is timestamp &&
+      (!('eventDurationMinutes' in data) || (data.eventDurationMinutes is int && data.eventDurationMinutes >= 15 && data.eventDurationMinutes <= 240)) &&
+      (!('eventEndAt' in data) || data.eventEndAt is timestamp) &&
+      data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 60 &&
+      data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 60 &&
+      isValidEmail(data.email) &&
+      isValidEmailKey(data.emailKey) &&
+      data.attended is bool &&
+      (!('memberValidated' in data) || data.memberValidated is bool) &&
+      data.status in ['confirmed', 'cancelled'] &&
+      (!('amountCents' in data) || (data.amountCents is int && data.amountCents >= 0 && data.amountCents <= 100000)) &&
+      (!('currency' in data) || data.currency == 'EUR') &&
+      (!('paymentStatus' in data) || data.paymentStatus in ['free', 'paid', 'pending', 'refunded']) &&
+      (!('paymentMethod' in data) || data.paymentMethod in ['free', 'card', 'onsite']) &&
+      (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 64)) &&
+      (!('cardBrand' in data) || (data.cardBrand is string && data.cardBrand.size() <= 24)) &&
+      (!('cardLast4' in data) || (data.cardLast4 is string && (data.cardLast4.size() == 0 || (data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$'))))) &&
+      (!('paidAt' in data) || data.paidAt == null || data.paidAt is timestamp) &&
+      (!('isGuest' in data) || data.isGuest is bool) &&
+      (!('invitedByEmail' in data) || isValidEmail(data.invitedByEmail)) &&
+      (!('invitedByEmailKey' in data) || isValidEmailKey(data.invitedByEmailKey)) &&
+      (!('invitedByName' in data) || (data.invitedByName is string && data.invitedByName.size() <= 125)) &&
+      (
+        data.get('isGuest', false) == false ||
+        (
+          ('invitedByEmail' in data) &&
+          ('invitedByEmailKey' in data) &&
+          data.invitedByEmail != data.email
+        )
+      ) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isMatchingPaymentAfter(paymentAfterData, regData) {
+      return paymentAfterData.amountCents == regData.amountCents &&
+        paymentAfterData.status == regData.paymentStatus;
+    }
+
+    function canBypassCutoffForRegistration(regIncoming) {
+      return isCoachAdmin() || (
+        isCoach() &&
+        regIncoming.get('isGuest', false) == false &&
+        regIncoming.email.lower() != request.auth.token.email.lower()
+      );
+    }
+
+    function isCoachOnEvent(coachUid, eventData) {
+      return coachUid == eventData.createdBy || (
+        ('coachUids' in eventData) &&
+        coachUid in eventData.coachUids
+      );
+    }
+
+    function isValidRegistrationPaymentForEvent(regData, eventData, regId) {
+      return (eventData.get('isPaid', false) == false || eventData.get('priceCents', 0) == 0)
+        ? (
+            regData.get('amountCents', 0) == 0 &&
+            regData.get('paymentStatus', 'free') == 'free' &&
+            regData.get('paymentMethod', 'free') == 'free'
+          )
+        : (
+            regData.get('amountCents', 0) == eventData.priceCents &&
+            regData.get('currency', 'EUR') == 'EUR' &&
+            regData.get('paymentReference', '').size() >= 6 &&
+            isMatchingPaymentAfter(
+              getAfter(/databases/$(database)/documents/payments/$(regId)).data,
+              regData
+            ) &&
+            (
+              (
+                regData.get('paymentMethod', '') == 'card' &&
+                eventData.get('paymentMode', 'online') in ['online', 'both'] &&
+                regData.get('paymentStatus', '') == 'paid' &&
+                regData.get('cardLast4', '').size() == 4 &&
+                regData.get('paidAt', null) == request.time
+              ) ||
+              (
+                regData.get('paymentMethod', '') == 'onsite' &&
+                (canBypassCutoffForRegistration(regData) || eventData.get('paymentMode', 'online') in ['onsite', 'both']) &&
+                (
+                  (regData.get('paymentStatus', '') == 'pending' && regData.get('paidAt', null) == null) ||
+                  (canBypassCutoffForRegistration(regData) && regData.get('paymentStatus', '') == 'paid' && regData.get('paidAt', null) == request.time)
+                )
+              )
+            )
+          );
+    }
+
+    function isValidRegistrationForEventCore(regIncoming, eventBefore, eventAfter, regId) {
+      return eventBefore.status == 'published' &&
+        hasCapacityForBooking(eventBefore) &&
+        eventAfter.registeredCount == eventBefore.registeredCount + 1 &&
+        eventAfter.lastRegId == regId &&
+        isValidRegistrationPaymentForEvent(regIncoming, eventBefore, regId) &&
+        (
+          canBypassCutoffForRegistration(regIncoming) ||
+          request.time < eventBefore.startAt - duration.value(eventBefore.get('bookingCutoffMinutes', 0), 'm')
+        );
+    }
+
+    function isValidEventBookingRegPair(regBefore, regAfter) {
+      return regBefore.status == 'cancelled' && regAfter.status == 'confirmed';
+    }
+
+    function isValidEventCancelRegPair(eventId, regBefore, regAfter) {
+      return regBefore.eventId == eventId &&
+        (
+          regBefore.email.lower() == request.auth.token.email.lower() ||
+          (
+            regBefore.get('isGuest', false) == true &&
+            regBefore.get('invitedByEmail', '').lower() == request.auth.token.email.lower()
+          )
+        ) &&
+        regBefore.status == 'confirmed' &&
+        regAfter.status == 'cancelled';
+    }
+
+    function isEventNotDecrementable(eventData) {
+      return eventData.status != 'published' || eventData.registeredCount == 0;
+    }
+
+    function isEventDecrementedForRegistration(eventBefore, eventAfter, registrationId) {
+      return eventAfter.registeredCount == eventBefore.registeredCount - 1 &&
+        eventAfter.lastRegId == registrationId;
+    }
+
+    function isValidRegBookingEventState(regIncoming, eventBefore, eventAfter, regId) {
+      return isValidRegistrationForEventCore(regIncoming, eventBefore, eventAfter, regId);
+    }
+
+    function isValidRebookedPaymentAgainstRegAndEvent(incomingPay, regBefore, regAfter, eventData) {
+      return regBefore.status == 'cancelled' &&
+        regAfter.status == 'confirmed' &&
+        eventData.get('isPaid', false) == true &&
+        incomingPay.amountCents == eventData.priceCents &&
+        regAfter.paymentReference == incomingPay.reference &&
+        regAfter.amountCents == incomingPay.amountCents &&
+        regAfter.paymentMethod == incomingPay.method &&
+        regAfter.paymentStatus == incomingPay.status;
+    }
+
+    function isValidNewPaymentForEvent(payIncoming, paymentId, eventData, regAfter) {
+      return eventData.get('isPaid', false) == true &&
+        payIncoming.amountCents == eventData.priceCents &&
+        regAfter.paymentReference == payIncoming.reference &&
+        regAfter.amountCents == payIncoming.amountCents &&
+        regAfter.paymentMethod == payIncoming.method &&
+        regAfter.paymentStatus == payIncoming.status;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll([
+        'registrationId', 'eventId', 'eventTitle', 'eventStartAt',
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'amountCents', 'currency', 'method', 'status', 'reference',
+        'cardBrand', 'cardLast4', 'paidAt', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'registrationId', 'eventId', 'eventTitle', 'eventStartAt',
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'amountCents', 'currency', 'method', 'status', 'reference',
+        'cardBrand', 'cardLast4', 'paidAt',
+        'isGuest', 'payerEmail',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.registrationId) &&
+      isValidId(data.eventId) &&
+      data.eventTitle is string && data.eventTitle.size() >= 2 && data.eventTitle.size() <= 100 &&
+      data.eventStartAt is timestamp &&
+      isValidEmail(data.memberEmail) &&
+      isValidEmailKey(data.memberEmailKey) &&
+      data.memberName is string && data.memberName.size() >= 2 && data.memberName.size() <= 125 &&
+      data.amountCents is int && data.amountCents >= 100 && data.amountCents <= 100000 &&
+      data.currency == 'EUR' &&
+      data.method in ['card', 'onsite'] &&
+      data.status in ['paid', 'pending', 'refunded'] &&
+      data.reference is string && data.reference.size() >= 6 && data.reference.size() <= 64 &&
+      data.cardBrand is string && data.cardBrand.size() <= 24 &&
+      data.cardLast4 is string && (data.cardLast4.size() == 0 || (data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$'))) &&
+      (data.paidAt == null || data.paidAt is timestamp) &&
+      (!('isGuest' in data) || data.isGuest is bool) &&
+      (!('payerEmail' in data) || isValidEmail(data.payerEmail)) &&
+      (
+        data.get('isGuest', false) == false ||
+        (('payerEmail' in data) && data.payerEmail != data.memberEmail)
+      ) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidMemberProfile(data) {
+      return data.keys().hasAll([
+        'emailKey', 'email', 'firstName', 'lastName', 'phone',
+        'goal', 'notes', 'followUpStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'emailKey', 'email', 'firstName', 'lastName', 'phone',
+        'goal', 'birthDate', 'fitnessLevel',
+        'notes', 'followUpStatus', 'photoUrl',
+        'referentCoachUid', 'referentCoachName',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidEmailKey(data.emailKey) &&
+      isValidEmail(data.email) &&
+      data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 60 &&
+      data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 60 &&
+      data.phone is string && data.phone.size() <= 30 &&
+      data.goal is string && data.goal.size() <= 120 &&
+      (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 10 && (data.birthDate == '' || data.birthDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))) &&
+      (!('fitnessLevel' in data) || data.fitnessLevel in ['', 'beginner', 'intermediate', 'advanced']) &&
+      data.notes is string && data.notes.size() <= 1000 &&
+      data.followUpStatus in ['active', 'to_follow_up', 'paused'] &&
+      (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 80000)) &&
+      (!('referentCoachUid' in data) || (data.referentCoachUid is string && (data.referentCoachUid == '' || isValidId(data.referentCoachUid)))) &&
+      (!('referentCoachName' in data) || (data.referentCoachName is string && data.referentCoachName.size() <= 80)) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidCoachPriceCents(val) {
+      return val is int && (val == 0 || (val >= 100 && val <= 200000));
+    }
+
+    function isValidCoachPricing(pricing) {
+      return pricing is map &&
+        pricing.keys().hasOnly([
+          'groupSessionPriceCents',
+          'customSessionPriceCents',
+          'program5kmPriceCents',
+          'program10kmPriceCents',
+          'program21kmPriceCents',
+          'program42kmPriceCents',
+          'pricingNotes'
+        ]) &&
+        (!('groupSessionPriceCents' in pricing) || isValidCoachPriceCents(pricing.groupSessionPriceCents)) &&
+        (!('customSessionPriceCents' in pricing) || isValidCoachPriceCents(pricing.customSessionPriceCents)) &&
+        (!('program5kmPriceCents' in pricing) || isValidCoachPriceCents(pricing.program5kmPriceCents)) &&
+        (!('program10kmPriceCents' in pricing) || isValidCoachPriceCents(pricing.program10kmPriceCents)) &&
+        (!('program21kmPriceCents' in pricing) || isValidCoachPriceCents(pricing.program21kmPriceCents)) &&
+        (!('program42kmPriceCents' in pricing) || isValidCoachPriceCents(pricing.program42kmPriceCents)) &&
+        (!('pricingNotes' in pricing) || (pricing.pricingNotes is string && pricing.pricingNotes.size() <= 300));
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll([
+        'uid', 'email', 'emailKey', 'displayName', 'role', 'active',
+        'isPrimary', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'email', 'emailKey', 'displayName', 'role', 'adminRequestStatus', 'active',
+        'isPrimary', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt',
+        'phone', 'specialty', 'city', 'region', 'certifications', 'bio', 'photoUrl', 'pricing'
+      ]) &&
+      isValidId(data.uid) &&
+      isValidEmail(data.email) &&
+      isValidEmailKey(data.emailKey) &&
+      data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+      (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+      (!('specialty' in data) || (data.specialty is string && data.specialty.size() <= 120)) &&
+      (!('city' in data) || (data.city is string && data.city.size() <= 80)) &&
+      (!('region' in data) || (data.region is string && data.region.size() <= 80)) &&
+      (!('certifications' in data) || (data.certifications is string && data.certifications.size() <= 200)) &&
+      (!('bio' in data) || (data.bio is string && data.bio.size() <= 600)) &&
+      (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 80000)) &&
+      (!('pricing' in data) || isValidCoachPricing(data.pricing)) &&
+      data.role in ['coach', 'coach_admin'] &&
+      (!('adminRequestStatus' in data) || data.adminRequestStatus in ['none', 'pending', 'rejected']) &&
+      data.active is bool &&
+      data.isPrimary is bool &&
+      isValidId(data.createdByUid) &&
+      isValidEmail(data.createdByEmail) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidDisciplineConfig(data) {
+      return data.keys().hasAll([
+        'name', 'slug', 'colorKey', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'slug', 'colorKey', 'iconKey', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 2 && data.name.size() <= 50 &&
+      isValidId(data.slug) && data.slug.size() >= 2 && data.slug.size() <= 64 &&
+      data.colorKey in ['emerald', 'orange', 'sky', 'violet', 'rose', 'teal', 'amber', 'indigo', 'lime', 'slate', 'cyan', 'fuchsia', 'blue', 'pink'] &&
+      (!('iconKey' in data) || data.iconKey in ['dumbbell', 'running-shoe', 'flame', 'yoga', 'bike', 'waves', 'boxing', 'heart-pulse', 'zap', 'mountain', 'music', 'ball', 'timer', 'footprints', 'target', 'trophy']) &&
+      isValidId(data.createdBy) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidCoachAccessRequest(data) {
+      return data.keys().hasAll([
+        'uid', 'email', 'emailKey', 'displayName', 'message',
+        'status', 'reviewedByEmail', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'email', 'emailKey', 'displayName', 'message',
+        'status', 'reviewedByEmail', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.uid) &&
+      isValidEmail(data.email) &&
+      isValidEmailKey(data.emailKey) &&
+      data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80 &&
+      data.message is string && data.message.size() <= 500 &&
+      data.status in ['pending', 'approved', 'rejected'] &&
+      data.reviewedByEmail is string && data.reviewedByEmail.size() <= 120 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAdminInvite(data) {
+      return data.keys().hasAll([
+        'email', 'emailKey', 'displayName', 'role', 'status',
+        'invitedByUid', 'invitedByEmail', 'claimedByUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'email', 'emailKey', 'displayName', 'role', 'status',
+        'invitedByUid', 'invitedByEmail', 'claimedByUid', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidEmail(data.email) &&
+      isValidEmailKey(data.emailKey) &&
+      data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80 &&
+      data.role in ['coach', 'coach_admin'] &&
+      data.status in ['pending', 'disabled', 'claimed'] &&
+      isValidId(data.invitedByUid) &&
+      isValidEmail(data.invitedByEmail) &&
+      data.claimedByUid is string && data.claimedByUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidCoachNotification(data) {
+      return data.keys().hasAll([
+        'coachUid', 'type', 'eventId', 'eventTitle', 'eventStartAt',
+        'registrationId', 'memberName', 'memberEmail', 'read',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'coachUid', 'type', 'eventId', 'eventTitle', 'eventStartAt',
+        'registrationId', 'memberName', 'memberEmail', 'invitedByName', 'read',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.coachUid) &&
+      data.type == 'new_registration' &&
+      isValidId(data.eventId) &&
+      data.eventTitle is string && data.eventTitle.size() >= 2 && data.eventTitle.size() <= 100 &&
+      data.eventStartAt is timestamp &&
+      isValidId(data.registrationId) &&
+      data.memberName is string && data.memberName.size() >= 2 && data.memberName.size() <= 125 &&
+      isValidEmail(data.memberEmail) &&
+      (!('invitedByName' in data) || (data.invitedByName is string && data.invitedByName.size() <= 125)) &&
+      data.read is bool &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidMemberNotification(data) {
+      return data.keys().hasAll([
+        'registrationId', 'eventId', 'eventTitle', 'eventStartAt', 'eventEndAt',
+        'memberEmail', 'memberEmailKey', 'type', 'read', 'validated',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'registrationId', 'eventId', 'eventTitle', 'eventStartAt', 'eventEndAt',
+        'memberEmail', 'memberEmailKey', 'type', 'coachName', 'wasPaid',
+        'read', 'validated', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.registrationId) &&
+      isValidId(data.eventId) &&
+      data.eventTitle is string && data.eventTitle.size() >= 2 && data.eventTitle.size() <= 100 &&
+      data.eventStartAt is timestamp &&
+      data.eventEndAt is timestamp &&
+      data.eventEndAt >= data.eventStartAt &&
+      isValidEmail(data.memberEmail) &&
+      isValidEmailKey(data.memberEmailKey) &&
+      data.type in ['validate_session', 'event_cancelled'] &&
+      (!('coachName' in data) || (data.coachName is string && data.coachName.size() <= 200)) &&
+      (!('wasPaid' in data) || data.wasPaid is bool) &&
+      data.read is bool &&
+      data.validated is bool &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // /events/{eventId} (Public read for published/cancelled events, strictly Coach-only writes)
+    // -------------------------------------------------------------------------
+    match /events/{eventId} {
+      allow get: if isValidId(eventId) && ((resource != null && existing().status in ['published', 'cancelled']) || isAdmin());
+      allow list: if resource.data.status in ['published', 'cancelled'] || isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(eventId) &&
+        isValidEvent(incoming()) &&
+        ('region' in incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().registeredCount == 0 &&
+        incoming().lastRegId == 'none' &&
+        (!('likesCount' in incoming()) || incoming().likesCount == 0) &&
+        (!('lastLikeId' in incoming()) || incoming().lastLikeId == 'none') &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(eventId) && isValidEvent(incoming()) && (
+        (
+          isAdmin() &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time
+        ) ||
+        (
+          hasAuthenticatedEmail() &&
+          existing().status == 'published' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['registeredCount', 'lastRegId', 'updatedAt']) &&
+          incoming().registeredCount == existing().registeredCount + 1 &&
+          hasCapacityForBooking(existing()) &&
+          isValidId(incoming().lastRegId) &&
+          incoming().updatedAt == request.time &&
+          (
+            request.time < existing().startAt - duration.value(existing().get('bookingCutoffMinutes', 0), 'm') ||
+            isCoachAdmin() ||
+            (
+              isCoach() &&
+              getAfter(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data.get('isGuest', false) == false &&
+              getAfter(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data.email.lower() != request.auth.token.email.lower()
+            )
+          ) &&
+          (
+            (
+              !exists(/databases/$(database)/documents/registrations/$(incoming().lastRegId)) &&
+              existsAfter(/databases/$(database)/documents/registrations/$(incoming().lastRegId))
+            ) ||
+            (
+              exists(/databases/$(database)/documents/registrations/$(incoming().lastRegId)) &&
+              isValidEventBookingRegPair(
+                get(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data,
+                getAfter(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data
+              )
+            )
+          )
+        ) ||
+        (
+          hasAuthenticatedEmail() &&
+          existing().status == 'published' &&
+          existing().registeredCount >= 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['registeredCount', 'lastRegId', 'updatedAt']) &&
+          incoming().registeredCount == existing().registeredCount - 1 &&
+          isValidId(incoming().lastRegId) &&
+          incoming().updatedAt == request.time &&
+          request.time < existing().startAt &&
+          exists(/databases/$(database)/documents/registrations/$(incoming().lastRegId)) &&
+          isValidEventCancelRegPair(
+            eventId,
+            get(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data,
+            getAfter(/databases/$(database)/documents/registrations/$(incoming().lastRegId)).data
+          )
+        ) ||
+        (
+          hasAuthenticatedEmail() &&
+          existing().status == 'published' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'lastLikeId', 'updatedAt']) &&
+          incoming().likesCount == existing().get('likesCount', 0) + 1 &&
+          isValidId(incoming().lastLikeId) &&
+          incoming().lastLikeId == eventId + '__' + request.auth.uid &&
+          incoming().updatedAt == request.time &&
+          !exists(/databases/$(database)/documents/eventLikes/$(incoming().lastLikeId)) &&
+          existsAfter(/databases/$(database)/documents/eventLikes/$(incoming().lastLikeId))
+        ) ||
+        (
+          hasAuthenticatedEmail() &&
+          existing().status == 'published' &&
+          existing().get('likesCount', 0) >= 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'lastLikeId', 'updatedAt']) &&
+          incoming().likesCount == existing().get('likesCount', 0) - 1 &&
+          isValidId(incoming().lastLikeId) &&
+          incoming().lastLikeId == eventId + '__' + request.auth.uid &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/eventLikes/$(incoming().lastLikeId)) &&
+          !existsAfter(/databases/$(database)/documents/eventLikes/$(incoming().lastLikeId))
+        )
+      );
+
+      allow delete: if isValidId(eventId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // /registrations/{registrationId} (PII: Coach reads all, Member reads own)
+    // -------------------------------------------------------------------------
+    match /registrations/{registrationId} {
+      allow get: if isValidId(registrationId) && (
+        isAdmin() ||
+        (hasAuthenticatedEmail() && resource != null && (
+          existing().email.lower() == request.auth.token.email.lower() ||
+          (existing().get('isGuest', false) == true && existing().get('invitedByEmail', '').lower() == request.auth.token.email.lower())
+        ))
+      );
+      allow list: if isAdmin() || (
+        hasAuthenticatedEmail() && (
+          resource.data.email == request.auth.token.email.lower() ||
+          resource.data.invitedByEmail == request.auth.token.email.lower()
+        )
+      );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(registrationId) &&
+        isValidRegistration(incoming()) &&
+        registrationId == incoming().eventId + '__' + incoming().emailKey &&
+        (
+          (incoming().email == request.auth.token.email.lower() && incoming().get('isGuest', false) == false) ||
+          (
+            incoming().get('isGuest', false) == true &&
+            incoming().get('invitedByEmail', '') == request.auth.token.email.lower() &&
+            incoming().email != request.auth.token.email.lower()
+          ) ||
+          isAdmin()
+        ) &&
+        incoming().attended == false &&
+        (!('memberValidated' in incoming()) || incoming().memberValidated == false) &&
+        (!('eventEndAt' in incoming()) || incoming().eventEndAt >= incoming().eventStartAt) &&
+        incoming().status == 'confirmed' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isValidRegistrationForEventCore(
+          incoming(),
+          get(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+          getAfter(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+          registrationId
+        );
+
+      allow update: if isValidId(registrationId) &&
+        isValidRegistration(incoming()) &&
+        incoming().eventId == existing().eventId &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            hasAuthenticatedEmail() &&
+            existing().email.lower() == request.auth.token.email.lower() &&
+            existing().status == 'confirmed' &&
+            existing().attended == false &&
+            incoming().attended == true &&
+            ('memberValidated' in incoming()) &&
+            incoming().memberValidated == true &&
+            incoming().eventTitle == existing().eventTitle &&
+            incoming().eventStartAt == existing().eventStartAt &&
+            incoming().email == existing().email &&
+            incoming().status == existing().status &&
+            (
+              ('eventEndAt' in existing())
+                ? request.time >= existing().eventEndAt - duration.value(2, 'm')
+                : (
+                    ('eventDurationMinutes' in existing())
+                      ? request.time >= existing().eventStartAt + duration.value(existing().eventDurationMinutes, 'm') - duration.value(2, 'm')
+                      : request.time >= existing().eventStartAt - duration.value(2, 'm')
+                  )
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['attended', 'memberValidated', 'updatedAt'])
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            (
+              existing().email.lower() == request.auth.token.email.lower() ||
+              (existing().get('isGuest', false) == true && existing().get('invitedByEmail', '').lower() == request.auth.token.email.lower())
+            ) &&
+            existing().status == 'confirmed' &&
+            existing().attended == false &&
+            incoming().status == 'cancelled' &&
+            request.time < existing().eventStartAt &&
+            (
+              !exists(/databases/$(database)/documents/events/$(existing().eventId)) ||
+              isEventNotDecrementable(get(/databases/$(database)/documents/events/$(existing().eventId)).data) ||
+              isEventDecrementedForRegistration(
+                get(/databases/$(database)/documents/events/$(existing().eventId)).data,
+                getAfter(/databases/$(database)/documents/events/$(existing().eventId)).data,
+                registrationId
+              )
+            ) &&
+            (
+              (
+                existing().get('paymentStatus', 'free') == 'paid' &&
+                incoming().get('paymentStatus', 'free') == 'refunded' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'updatedAt']) &&
+                (
+                  !exists(/databases/$(database)/documents/payments/$(registrationId)) ||
+                  getAfter(/databases/$(database)/documents/payments/$(registrationId)).data.status == 'refunded'
+                )
+              ) ||
+              (
+                existing().get('paymentStatus', 'free') != 'paid' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+              )
+            )
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            existing().status == 'cancelled' &&
+            incoming().status == 'confirmed' &&
+            incoming().attended == false &&
+            (!('memberValidated' in incoming()) || incoming().memberValidated == false) &&
+            (!('eventEndAt' in incoming()) || incoming().eventEndAt >= incoming().eventStartAt) &&
+            (
+              (existing().email.lower() == request.auth.token.email.lower() && incoming().email == existing().email && incoming().get('isGuest', false) == false) ||
+              (
+                incoming().get('isGuest', false) == true &&
+                incoming().get('invitedByEmail', '') == request.auth.token.email.lower() &&
+                incoming().email == existing().email &&
+                incoming().email != request.auth.token.email.lower() &&
+                (
+                  existing().get('invitedByEmail', '').lower() == request.auth.token.email.lower() ||
+                  existing().email.lower() == request.auth.token.email.lower()
+                )
+              ) ||
+              isAdmin()
+            ) &&
+            exists(/databases/$(database)/documents/events/$(incoming().eventId)) &&
+            isValidRegBookingEventState(
+              incoming(),
+              get(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+              getAfter(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+              registrationId
+            )
+          ) ||
+          (
+            isAdmin() &&
+            (
+              incoming().diff(existing()).affectedKeys().hasOnly(['attended', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'paidAt', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'eventTitle', 'eventStartAt', 'eventDurationMinutes', 'eventEndAt', 'updatedAt'
+              ])
+            )
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(registrationId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /payments/{paymentId} (Financial transaction ledger for paid events)
+    // -------------------------------------------------------------------------
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (
+        isAdmin() ||
+        (hasAuthenticatedEmail() && resource != null && (
+          existing().memberEmail.lower() == request.auth.token.email.lower() ||
+          (existing().get('isGuest', false) == true && existing().get('payerEmail', '').lower() == request.auth.token.email.lower())
+        ))
+      );
+      allow list: if isAdmin() || (
+        hasAuthenticatedEmail() && (
+          resource.data.memberEmail == request.auth.token.email.lower() ||
+          resource.data.payerEmail == request.auth.token.email.lower()
+        )
+      );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(paymentId) &&
+        isValidPayment(incoming()) &&
+        paymentId == incoming().registrationId &&
+        (
+          (incoming().memberEmail == request.auth.token.email.lower() && incoming().get('isGuest', false) == false) ||
+          (
+            incoming().get('isGuest', false) == true &&
+            incoming().get('payerEmail', '') == request.auth.token.email.lower() &&
+            incoming().memberEmail != request.auth.token.email.lower()
+          ) ||
+          isAdmin()
+        ) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isValidNewPaymentForEvent(
+          incoming(),
+          paymentId,
+          get(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+          getAfter(/databases/$(database)/documents/registrations/$(paymentId)).data
+        ) &&
+        (
+          (
+            incoming().method == 'card' &&
+            incoming().status == 'paid' &&
+            incoming().paidAt == request.time &&
+            incoming().cardLast4.size() == 4
+          ) ||
+          (
+            incoming().method == 'onsite' &&
+            (
+              (incoming().status == 'pending' && incoming().paidAt == null) ||
+              (isAdmin() && incoming().status == 'paid' && incoming().paidAt == request.time)
+            )
+          )
+        );
+
+      allow update: if isValidId(paymentId) &&
+        isValidPayment(incoming()) &&
+        incoming().registrationId == existing().registrationId &&
+        incoming().eventId == existing().eventId &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().memberEmailKey == existing().memberEmailKey &&
+        incoming().currency == existing().currency &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            hasAuthenticatedEmail() &&
+            (
+              existing().memberEmail.lower() == request.auth.token.email.lower() ||
+              (existing().get('isGuest', false) == true && existing().get('payerEmail', '').lower() == request.auth.token.email.lower())
+            ) &&
+            existing().status == 'paid' &&
+            incoming().status == 'refunded' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+            exists(/databases/$(database)/documents/registrations/$(paymentId)) &&
+            get(/databases/$(database)/documents/registrations/$(paymentId)).data.status == 'confirmed' &&
+            getAfter(/databases/$(database)/documents/registrations/$(paymentId)).data.status == 'cancelled'
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            existing().registrationId == paymentId &&
+            (
+              existing().memberEmail.lower() == request.auth.token.email.lower() ||
+              (existing().get('isGuest', false) == true && existing().get('payerEmail', '').lower() == request.auth.token.email.lower()) ||
+              isAdmin()
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'eventTitle', 'eventStartAt', 'memberName', 'amountCents',
+              'method', 'status', 'reference', 'cardBrand', 'cardLast4',
+              'paidAt', 'isGuest', 'payerEmail', 'updatedAt'
+            ]) &&
+            (
+              (
+                incoming().method == 'card' &&
+                incoming().status == 'paid' &&
+                incoming().paidAt == request.time &&
+                incoming().cardLast4.size() == 4
+              ) ||
+              (
+                incoming().method == 'onsite' &&
+                (
+                  (incoming().status == 'pending' && incoming().paidAt == null) ||
+                  (isAdmin() && incoming().status == 'paid' && incoming().paidAt == request.time)
+                )
+              )
+            ) &&
+            exists(/databases/$(database)/documents/events/$(incoming().eventId)) &&
+            (
+              (
+                exists(/databases/$(database)/documents/registrations/$(paymentId)) &&
+                isValidRebookedPaymentAgainstRegAndEvent(
+                  incoming(),
+                  get(/databases/$(database)/documents/registrations/$(paymentId)).data,
+                  getAfter(/databases/$(database)/documents/registrations/$(paymentId)).data,
+                  get(/databases/$(database)/documents/events/$(incoming().eventId)).data
+                )
+              ) ||
+              (
+                !exists(/databases/$(database)/documents/registrations/$(paymentId)) &&
+                existsAfter(/databases/$(database)/documents/registrations/$(paymentId)) &&
+                existing().status == 'refunded' &&
+                getAfter(/databases/$(database)/documents/registrations/$(paymentId)).data.status == 'confirmed' &&
+                isValidNewPaymentForEvent(
+                  incoming(),
+                  paymentId,
+                  get(/databases/$(database)/documents/events/$(incoming().eventId)).data,
+                  getAfter(/databases/$(database)/documents/registrations/$(paymentId)).data
+                )
+              )
+            )
+          ) ||
+          (
+            isAdmin() &&
+            incoming().amountCents == existing().amountCents &&
+            incoming().method == existing().method &&
+            incoming().reference == existing().reference &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paidAt', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(paymentId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /members/{memberId} (Isolated per referent coach; primary admin manages unassigned/own; member chooses own coach)
+    // -------------------------------------------------------------------------
+    function isMyAttachedMember(memberData) {
+      return isBootstrappedAdmin() || (
+        isCoach() &&
+        memberData.get('referentCoachUid', '') == request.auth.uid
+      );
+    }
+
+    function isValidReferentCoachAssignment(data) {
+      return !('referentCoachUid' in data) ||
+        data.referentCoachUid == '' ||
+        (
+          isValidId(data.referentCoachUid) && (
+            exists(/databases/$(database)/documents/coachDirectory/$(data.referentCoachUid)) ||
+            exists(/databases/$(database)/documents/admins/$(data.referentCoachUid))
+          )
+        );
+    }
+
+    match /members/{memberId} {
+      allow get: if isValidId(memberId) && (
+        (resource == null && isAdmin()) ||
+        (resource != null && (
+          isMyAttachedMember(existing()) ||
+          (hasAuthenticatedEmail() && existing().email == request.auth.token.email.lower())
+        ))
+      );
+      allow list: if isBootstrappedAdmin() ||
+        (isCoach() && resource.data.referentCoachUid == request.auth.uid) ||
+        (
+          hasAuthenticatedEmail() &&
+          resource.data.email == request.auth.token.email.lower()
+        );
+
+      allow create: if isValidId(memberId) &&
+        isValidMemberProfile(incoming()) &&
+        memberId == incoming().emailKey &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isValidReferentCoachAssignment(incoming()) &&
+        (
+          (
+            isAdmin() &&
+            (
+              isBootstrappedAdmin() ||
+              (('referentCoachUid' in incoming()) && isValidId(incoming().referentCoachUid))
+            )
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            incoming().email == request.auth.token.email.lower() &&
+            incoming().followUpStatus == 'active' &&
+            incoming().notes == ''
+          )
+        );
+
+      allow update: if isValidId(memberId) &&
+        isValidMemberProfile(incoming()) &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isMyAttachedMember(existing()) &&
+            isValidReferentCoachAssignment(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'email', 'phone', 'goal', 'birthDate', 'fitnessLevel',
+              'notes', 'followUpStatus', 'photoUrl', 'referentCoachUid', 'referentCoachName', 'updatedAt'
+            ])
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            existing().email == request.auth.token.email.lower() &&
+            incoming().email == existing().email &&
+            incoming().notes == existing().notes &&
+            incoming().followUpStatus == existing().followUpStatus &&
+            (
+              incoming().get('referentCoachUid', '') == existing().get('referentCoachUid', '') ||
+              (
+                ('referentCoachUid' in incoming()) &&
+                isValidId(incoming().referentCoachUid) &&
+                isValidReferentCoachAssignment(incoming())
+              )
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'phone', 'goal', 'birthDate', 'fitnessLevel',
+              'photoUrl', 'referentCoachUid', 'referentCoachName', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(memberId) && isMyAttachedMember(existing());
+    }
+
+    // -------------------------------------------------------------------------
+    // /admins/{adminId} (Coaches and Coach Administrators)
+    // -------------------------------------------------------------------------
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isCoach());
+      allow list: if isCoach();
+
+      allow create: if isValidId(adminId) &&
+        isValidAdminUser(incoming()) &&
+        incoming().uid == adminId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().email != 'davidfrosio@hotmail.fr' || (incoming().active == true && incoming().isPrimary == true && incoming().role == 'coach_admin')) &&
+        (
+          (
+            isCoachAdmin() &&
+            incoming().createdByUid == request.auth.uid &&
+            incoming().createdByEmail == request.auth.token.email.lower()
+          ) ||
+          (
+            isVerifiedEmail() &&
+            adminId == request.auth.uid &&
+            incoming().email == request.auth.token.email.lower() &&
+            incoming().active == true &&
+            incoming().isPrimary == false &&
+            exists(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)) &&
+            get(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.email == request.auth.token.email.lower() &&
+            get(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.status == 'pending' &&
+            incoming().role == get(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.role &&
+            incoming().createdByUid == get(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.invitedByUid &&
+            incoming().createdByEmail == get(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.invitedByEmail &&
+            getAfter(/databases/$(database)/documents/adminInvites/$(incoming().emailKey)).data.status == 'claimed'
+          )
+        );
+
+      allow update: if isCoach() &&
+        isValidId(adminId) &&
+        isValidAdminUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().isPrimary == existing().isPrimary &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdByEmail == existing().createdByEmail &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().email != 'davidfrosio@hotmail.fr' || (incoming().active == true && incoming().role == 'coach_admin')) &&
+        (!existing().isPrimary || (incoming().active == true && incoming().role == 'coach_admin')) &&
+        (
+          (
+            isCoachAdmin() &&
+            (adminId != request.auth.uid || incoming().role == existing().role) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['active', 'displayName', 'role', 'adminRequestStatus', 'updatedAt'])
+          ) ||
+          (
+            request.auth.uid == adminId &&
+            incoming().active == existing().active &&
+            incoming().role == existing().role &&
+            incoming().displayName.size() >= 2 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'specialty', 'city', 'region', 'certifications', 'bio', 'photoUrl', 'pricing', 'updatedAt'
+            ])
+          ) ||
+          (
+            request.auth.uid == adminId &&
+            existing().role == 'coach' &&
+            incoming().role == 'coach' &&
+            incoming().active == existing().active &&
+            incoming().adminRequestStatus == 'pending' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['adminRequestStatus', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isCoachAdmin() &&
+        isValidId(adminId) &&
+        existing().email != 'davidfrosio@hotmail.fr' &&
+        existing().isPrimary == false &&
+        adminId != request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------------
+    // /coachAccessRequests/{requestId} (Access requests reviewed by Coach Admins)
+    // -------------------------------------------------------------------------
+    match /coachAccessRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (request.auth.uid == requestId || isCoachAdmin());
+      allow list: if isCoachAdmin();
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(requestId) &&
+        requestId == request.auth.uid &&
+        isValidCoachAccessRequest(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().email == request.auth.token.email.lower() &&
+        incoming().status == 'pending' &&
+        incoming().reviewedByEmail == '' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        !exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+
+      allow update: if isValidId(requestId) &&
+        isValidCoachAccessRequest(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isCoachAdmin() &&
+            incoming().reviewedByEmail == request.auth.token.email.lower() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewedByEmail', 'updatedAt']) &&
+            (
+              incoming().status == 'rejected' ||
+              (
+                incoming().status == 'approved' &&
+                existsAfter(/databases/$(database)/documents/admins/$(requestId)) &&
+                getAfter(/databases/$(database)/documents/admins/$(requestId)).data.active == true &&
+                getAfter(/databases/$(database)/documents/admins/$(requestId)).data.role == 'coach'
+              )
+            )
+          ) ||
+          (
+            hasAuthenticatedEmail() &&
+            request.auth.uid == requestId &&
+            existing().status == 'rejected' &&
+            incoming().status == 'pending' &&
+            incoming().reviewedByEmail == '' &&
+            !exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'message', 'status', 'reviewedByEmail', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isCoachAdmin() && isValidId(requestId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /adminInvites/{inviteId} (Direct coach nominations by email, default non-admin)
+    // -------------------------------------------------------------------------
+    match /adminInvites/{inviteId} {
+      allow get: if isValidId(inviteId) && (
+        isCoachAdmin() ||
+        (isVerifiedEmail() && existing().email == request.auth.token.email.lower())
+      );
+      allow list: if isCoachAdmin() || (
+        isVerifiedEmail() &&
+        resource.data.email == request.auth.token.email.lower()
+      );
+
+      allow create: if isCoachAdmin() &&
+        isValidId(inviteId) &&
+        isValidAdminInvite(incoming()) &&
+        inviteId == incoming().emailKey &&
+        incoming().email != 'davidfrosio@hotmail.fr' &&
+        incoming().role == 'coach' &&
+        incoming().status == 'pending' &&
+        incoming().claimedByUid == '' &&
+        incoming().invitedByUid == request.auth.uid &&
+        incoming().invitedByEmail == request.auth.token.email.lower() &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(inviteId) &&
+        isValidAdminInvite(incoming()) &&
+        incoming().email == existing().email &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isCoachAdmin() &&
+            incoming().role == 'coach' &&
+            incoming().status in ['pending', 'disabled'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'displayName', 'role', 'invitedByUid', 'invitedByEmail', 'claimedByUid', 'updatedAt'
+            ])
+          ) ||
+          (
+            isVerifiedEmail() &&
+            existing().email == request.auth.token.email.lower() &&
+            existing().status == 'pending' &&
+            incoming().status == 'claimed' &&
+            incoming().role == existing().role &&
+            incoming().invitedByUid == existing().invitedByUid &&
+            incoming().invitedByEmail == existing().invitedByEmail &&
+            incoming().claimedByUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'claimedByUid', 'updatedAt']) &&
+            existsAfter(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+            getAfter(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true &&
+            getAfter(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == existing().role
+          )
+        );
+
+      allow delete: if isCoachAdmin() && isValidId(inviteId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /disciplines/{disciplineId} (Public color/category config, Coach-only writes)
+    // -------------------------------------------------------------------------
+    match /disciplines/{disciplineId} {
+      allow get: if isValidId(disciplineId);
+      allow list: if true;
+
+      allow create: if isAdmin() &&
+        isValidId(disciplineId) &&
+        isValidDisciplineConfig(incoming()) &&
+        disciplineId == incoming().slug &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(disciplineId) &&
+        isValidDisciplineConfig(incoming()) &&
+        incoming().slug == existing().slug &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'colorKey', 'iconKey', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(disciplineId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /coachNotifications/{notificationId} (Atomic registration alerts to event's coach)
+    // -------------------------------------------------------------------------
+    match /coachNotifications/{notificationId} {
+      allow get: if isAdmin() && isValidId(notificationId);
+
+      allow list: if isAdmin();
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(notificationId) &&
+        isValidCoachNotification(incoming()) &&
+        incoming().read == false &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().memberEmail == request.auth.token.email.lower() ||
+          (
+            getAfter(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.get('isGuest', false) == true &&
+            getAfter(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.get('invitedByEmail', '') == request.auth.token.email.lower()
+          ) ||
+          isAdmin()
+        ) &&
+        isCoachOnEvent(
+          incoming().coachUid,
+          get(/databases/$(database)/documents/events/$(incoming().eventId)).data
+        ) &&
+        getAfter(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.status == 'confirmed';
+
+      allow update: if isAdmin() &&
+        isValidId(notificationId) &&
+        isValidCoachNotification(incoming()) &&
+        existing().coachUid == request.auth.uid &&
+        incoming().coachUid == existing().coachUid &&
+        incoming().type == existing().type &&
+        incoming().eventId == existing().eventId &&
+        incoming().eventTitle == existing().eventTitle &&
+        incoming().eventStartAt == existing().eventStartAt &&
+        incoming().registrationId == existing().registrationId &&
+        incoming().memberName == existing().memberName &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().get('invitedByName', '') == existing().get('invitedByName', '') &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(notificationId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /memberNotifications/{notificationId} (Validation reminders & coach event cancellations)
+    // -------------------------------------------------------------------------
+    match /memberNotifications/{notificationId} {
+      allow get: if isValidId(notificationId) && (
+        isAdmin() ||
+        (
+          hasAuthenticatedEmail() && (
+            (resource != null && existing().memberEmail == request.auth.token.email.lower()) ||
+            (
+              resource == null &&
+              exists(/databases/$(database)/documents/registrations/$(notificationId)) &&
+              get(/databases/$(database)/documents/registrations/$(notificationId)).data.email == request.auth.token.email.lower()
+            )
+          )
+        )
+      );
+
+      allow list: if isAdmin() || (
+        hasAuthenticatedEmail() &&
+        resource.data.memberEmail == request.auth.token.email.lower()
+      );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(notificationId) &&
+        isValidMemberNotification(incoming()) &&
+        incoming().read == false &&
+        incoming().validated == false &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            incoming().type == 'validate_session' &&
+            notificationId == incoming().registrationId &&
+            (isAdmin() || incoming().memberEmail == request.auth.token.email.lower()) &&
+            exists(/databases/$(database)/documents/registrations/$(incoming().registrationId)) &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.email == incoming().memberEmail &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.emailKey == incoming().memberEmailKey &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.eventId == incoming().eventId &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.status == 'confirmed' &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.attended == false &&
+            request.time >= incoming().eventEndAt - duration.value(2, 'm') &&
+            (
+              ('eventEndAt' in get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data)
+                ? incoming().eventEndAt == get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.eventEndAt
+                : request.time >= get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.eventStartAt - duration.value(2, 'm')
+            )
+          ) ||
+          (
+            incoming().type == 'event_cancelled' &&
+            isAdmin() &&
+            exists(/databases/$(database)/documents/registrations/$(incoming().registrationId)) &&
+            get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.eventId == incoming().eventId &&
+            (
+              (
+                notificationId == 'cancel__' + incoming().registrationId &&
+                get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.email.lower() == incoming().memberEmail &&
+                get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.emailKey == incoming().memberEmailKey
+              ) ||
+              (
+                notificationId == 'cancel__host__' + incoming().registrationId &&
+                get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.get('isGuest', false) == true &&
+                get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.get('invitedByEmail', '').lower() == incoming().memberEmail &&
+                get(/databases/$(database)/documents/registrations/$(incoming().registrationId)).data.get('invitedByEmailKey', '') == incoming().memberEmailKey
+              )
+            )
+          )
+        );
+
+      allow update: if isValidId(notificationId) &&
+        isValidMemberNotification(incoming()) &&
+        incoming().registrationId == existing().registrationId &&
+        incoming().eventId == existing().eventId &&
+        incoming().eventTitle == existing().eventTitle &&
+        incoming().eventStartAt == existing().eventStartAt &&
+        incoming().eventEndAt == existing().eventEndAt &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().memberEmailKey == existing().memberEmailKey &&
+        incoming().type == existing().type &&
+        incoming().get('coachName', '') == existing().get('coachName', '') &&
+        incoming().get('wasPaid', false) == existing().get('wasPaid', false) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            hasAuthenticatedEmail() &&
+            existing().memberEmail == request.auth.token.email.lower() &&
+            (
+              (
+                incoming().validated == existing().validated &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt'])
+              ) ||
+              (
+                existing().type == 'validate_session' &&
+                incoming().validated == true &&
+                incoming().read == true &&
+                getAfter(/databases/$(database)/documents/registrations/$(existing().registrationId)).data.attended == true &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['validated', 'read', 'updatedAt'])
+              )
+            )
+          ) ||
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['validated', 'read', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(notificationId) && (
+        isAdmin() ||
+        (hasAuthenticatedEmail() && existing().memberEmail == request.auth.token.email.lower())
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // /eventLikes/{likeId} (Authenticated user likes synced atomically with events.likesCount)
+    // -------------------------------------------------------------------------
+    function isValidEventLike(data) {
+      return data.keys().hasAll(['eventId', 'userId', 'createdAt']) &&
+        data.keys().hasOnly(['eventId', 'userId', 'createdAt']) &&
+        isValidId(data.eventId) &&
+        data.eventId.size() >= 4 &&
+        data.eventId.size() <= 64 &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    match /eventLikes/{likeId} {
+      allow get: if isValidId(likeId) && (
+        isAdmin() ||
+        (
+          hasAuthenticatedEmail() && (
+            (resource != null && existing().userId == request.auth.uid) ||
+            (resource == null && likeId.split('__').size() >= 2 && likeId.split('__')[likeId.split('__').size() - 1] == request.auth.uid)
+          )
+        )
+      );
+      allow list: if isAdmin() || (
+        hasAuthenticatedEmail() &&
+        resource.data.userId == request.auth.uid
+      );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(likeId) &&
+        isValidEventLike(incoming()) &&
+        likeId == incoming().eventId + '__' + request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/events/$(incoming().eventId)) &&
+        get(/databases/$(database)/documents/events/$(incoming().eventId)).data.status == 'published' &&
+        getAfter(/databases/$(database)/documents/events/$(incoming().eventId)).data.likesCount == get(/databases/$(database)/documents/events/$(incoming().eventId)).data.get('likesCount', 0) + 1 &&
+        getAfter(/databases/$(database)/documents/events/$(incoming().eventId)).data.lastLikeId == likeId;
+
+      allow update: if false;
+
+      allow delete: if isValidId(likeId) && (
+        isAdmin() ||
+        (
+          hasAuthenticatedEmail() &&
+          existing().userId == request.auth.uid &&
+          exists(/databases/$(database)/documents/events/$(existing().eventId)) &&
+          get(/databases/$(database)/documents/events/$(existing().eventId)).data.status == 'published' &&
+          get(/databases/$(database)/documents/events/$(existing().eventId)).data.get('likesCount', 0) >= 1 &&
+          getAfter(/databases/$(database)/documents/events/$(existing().eventId)).data.likesCount == get(/databases/$(database)/documents/events/$(existing().eventId)).data.get('likesCount', 0) - 1 &&
+          getAfter(/databases/$(database)/documents/events/$(existing().eventId)).data.lastLikeId == likeId
+        )
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // /eventReviews/{reviewId} (Public non-PII reviews & comments from verified participants)
+    // -------------------------------------------------------------------------
+    function isValidEventReview(data) {
+      return data.keys().hasAll([
+        'eventId', 'registrationId', 'emailKey', 'authorUid', 'authorName',
+        'eventTitle', 'discipline', 'eventStartAt', 'rating', 'comment',
+        'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'eventId', 'registrationId', 'emailKey', 'authorUid', 'authorName',
+        'eventTitle', 'discipline', 'eventStartAt', 'rating', 'comment',
+        'status', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.eventId) &&
+      data.eventId.size() >= 4 &&
+      data.eventId.size() <= 64 &&
+      isValidId(data.registrationId) &&
+      data.registrationId.size() >= 4 &&
+      data.registrationId.size() <= 128 &&
+      isValidEmailKey(data.emailKey) &&
+      isValidId(data.authorUid) &&
+      data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 80 &&
+      data.eventTitle is string && data.eventTitle.size() >= 2 && data.eventTitle.size() <= 100 &&
+      isValidDiscipline(data.discipline) &&
+      data.eventStartAt is timestamp &&
+      data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+      data.comment is string && data.comment.size() >= 3 && data.comment.size() <= 800 &&
+      data.status == 'published' &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isEligibleRegistrationForReview(regData, reviewData) {
+      return regData.eventId == reviewData.eventId &&
+        regData.emailKey == reviewData.emailKey &&
+        regData.email.lower() == request.auth.token.email.lower() &&
+        regData.status == 'confirmed' &&
+        regData.attended == true &&
+        (
+          ('eventEndAt' in regData)
+            ? request.time >= regData.eventEndAt
+            : (
+                ('eventDurationMinutes' in regData)
+                  ? request.time >= regData.eventStartAt + duration.value(regData.eventDurationMinutes, 'm')
+                  : request.time >= regData.eventStartAt
+              )
+        );
+    }
+
+    match /eventReviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (
+        (resource != null && existing().status == 'published') ||
+        isAdmin() ||
+        (
+          hasAuthenticatedEmail() &&
+          resource == null &&
+          exists(/databases/$(database)/documents/registrations/$(reviewId)) &&
+          get(/databases/$(database)/documents/registrations/$(reviewId)).data.email.lower() == request.auth.token.email.lower()
+        )
+      );
+      allow list: if resource.data.status == 'published' || isAdmin();
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(reviewId) &&
+        isValidEventReview(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        reviewId == incoming().registrationId &&
+        incoming().registrationId == incoming().eventId + '__' + incoming().emailKey &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/registrations/$(reviewId)) &&
+        isEligibleRegistrationForReview(
+          get(/databases/$(database)/documents/registrations/$(reviewId)).data,
+          incoming()
+        ) &&
+        (
+          !exists(/databases/$(database)/documents/events/$(incoming().eventId)) ||
+          (
+            get(/databases/$(database)/documents/events/$(incoming().eventId)).data.status == 'published' &&
+            request.time >= get(/databases/$(database)/documents/events/$(incoming().eventId)).data.startAt + duration.value(get(/databases/$(database)/documents/events/$(incoming().eventId)).data.durationMinutes, 'm')
+          )
+        );
+
+      allow update: if hasAuthenticatedEmail() &&
+        isValidId(reviewId) &&
+        isValidEventReview(incoming()) &&
+        existing().authorUid == request.auth.uid &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().eventId == existing().eventId &&
+        incoming().registrationId == existing().registrationId &&
+        incoming().emailKey == existing().emailKey &&
+        incoming().eventTitle == existing().eventTitle &&
+        incoming().discipline == existing().discipline &&
+        incoming().eventStartAt == existing().eventStartAt &&
+        incoming().status == existing().status &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'authorName', 'updatedAt']) &&
+        (
+          !exists(/databases/$(database)/documents/registrations/$(reviewId)) ||
+          (
+            get(/databases/$(database)/documents/registrations/$(reviewId)).data.status == 'confirmed' &&
+            get(/databases/$(database)/documents/registrations/$(reviewId)).data.attended == true
+          )
+        ) &&
+        (
+          !exists(/databases/$(database)/documents/events/$(existing().eventId)) ||
+          (
+            get(/databases/$(database)/documents/events/$(existing().eventId)).data.status == 'published' &&
+            request.time >= get(/databases/$(database)/documents/events/$(existing().eventId)).data.startAt + duration.value(get(/databases/$(database)/documents/events/$(existing().eventId)).data.durationMinutes, 'm')
+          )
+        );
+
+      allow delete: if isValidId(reviewId) && (
+        isAdmin() ||
+        (hasAuthenticatedEmail() && existing().authorUid == request.auth.uid)
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // /coachDirectory/{coachUid} (Non-PII public coach roster for member messaging)
+    // -------------------------------------------------------------------------
+    function isValidCoachDirectoryEntry(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'active', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid', 'displayName', 'specialty', 'city', 'region', 'bio', 'photoUrl', 'pricing', 'active', 'isPrimary', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        (!('specialty' in data) || (data.specialty is string && data.specialty.size() <= 120)) &&
+        (!('city' in data) || (data.city is string && data.city.size() <= 80)) &&
+        (!('region' in data) || (data.region is string && data.region.size() <= 80)) &&
+        (!('bio' in data) || (data.bio is string && data.bio.size() <= 600)) &&
+        (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 80000)) &&
+        (!('pricing' in data) || isValidCoachPricing(data.pricing)) &&
+        data.active is bool &&
+        (!('isPrimary' in data) || data.isPrimary is bool) &&
+        data.updatedAt is timestamp;
+    }
+
+    match /coachDirectory/{coachUid} {
+      allow get: if isValidId(coachUid) && hasAuthenticatedEmail();
+      allow list: if hasAuthenticatedEmail() && resource.data.active == true;
+
+      allow create, update: if isValidId(coachUid) &&
+        (isCoachAdmin() || (isCoach() && request.auth.uid == coachUid)) &&
+        isValidCoachDirectoryEntry(incoming()) &&
+        incoming().uid == coachUid &&
+        incoming().updatedAt == request.time;
+
+      allow delete: if isValidId(coachUid) && isCoachAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // /conversations/{conversationId} & /messages/{messageId}
+    // Private 1-to-1 messaging between Coach and Member (${coachUid}__${memberEmailKey})
+    // -------------------------------------------------------------------------
+    function isValidConversation(data) {
+      return data.keys().hasAll([
+        'coachUid', 'coachName', 'memberEmail', 'memberEmailKey', 'memberName',
+        'memberUid', 'lastMessageText', 'lastMessageSenderRole',
+        'lastMessageSenderUid', 'lastMessageAt',
+        'coachUnreadCount', 'memberUnreadCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'coachUid', 'coachName', 'coachPhotoUrl',
+        'memberEmail', 'memberEmailKey', 'memberName', 'memberPhotoUrl', 'memberUid',
+        'lastMessageText', 'lastMessageSenderRole', 'lastMessageSenderUid', 'lastMessageAt',
+        'coachUnreadCount', 'memberUnreadCount', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.coachUid) &&
+      data.coachName is string && data.coachName.size() >= 1 && data.coachName.size() <= 80 &&
+      (!('coachPhotoUrl' in data) || (data.coachPhotoUrl is string && data.coachPhotoUrl.size() <= 80000)) &&
+      isValidEmail(data.memberEmail) &&
+      isValidEmailKey(data.memberEmailKey) &&
+      data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 125 &&
+      (!('memberPhotoUrl' in data) || (data.memberPhotoUrl is string && data.memberPhotoUrl.size() <= 80000)) &&
+      data.memberUid is string &&
+      data.memberUid.size() <= 128 &&
+      (data.memberUid == '' || isValidId(data.memberUid)) &&
+      data.lastMessageText is string && data.lastMessageText.size() >= 1 && data.lastMessageText.size() <= 240 &&
+      data.lastMessageSenderRole in ['coach', 'member'] &&
+      isValidId(data.lastMessageSenderUid) &&
+      data.lastMessageAt is timestamp &&
+      data.coachUnreadCount is int && data.coachUnreadCount >= 0 && data.coachUnreadCount <= 100000 &&
+      data.memberUnreadCount is int && data.memberUnreadCount >= 0 && data.memberUnreadCount <= 100000 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidDirectMessage(data) {
+      return data.keys().hasAll([
+        'conversationId', 'coachUid', 'memberEmail',
+        'senderUid', 'senderEmail', 'senderName', 'senderRole',
+        'text', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'conversationId', 'coachUid', 'memberEmail',
+        'senderUid', 'senderEmail', 'senderName', 'senderRole',
+        'text', 'contextEventId', 'contextEventTitle',
+        'likedByCoach', 'likedByMember', 'updatedAt', 'createdAt'
+      ]) &&
+      isValidId(data.conversationId) &&
+      data.conversationId.size() >= 10 &&
+      isValidId(data.coachUid) &&
+      isValidEmail(data.memberEmail) &&
+      isValidId(data.senderUid) &&
+      isValidEmail(data.senderEmail) &&
+      data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 125 &&
+      data.senderRole in ['coach', 'member'] &&
+      data.text is string && data.text.size() >= 1 && data.text.size() <= 1500 &&
+      (!('contextEventId' in data) || isValidId(data.contextEventId)) &&
+      (!('contextEventTitle' in data) || (data.contextEventTitle is string && data.contextEventTitle.size() >= 2 && data.contextEventTitle.size() <= 100)) &&
+      (!('likedByCoach' in data) || data.likedByCoach is bool) &&
+      (!('likedByMember' in data) || data.likedByMember is bool) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+      data.createdAt is timestamp;
+    }
+
+    match /conversations/{conversationId} {
+      allow get: if isValidId(conversationId) &&
+        hasAuthenticatedEmail() &&
+        resource != null &&
+        (
+          existing().coachUid == request.auth.uid ||
+          existing().memberEmail == request.auth.token.email.lower()
+        );
+
+      allow list: if hasAuthenticatedEmail() && (
+        resource.data.coachUid == request.auth.uid ||
+        resource.data.memberEmail == request.auth.token.email.lower()
+      );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(conversationId) &&
+        isValidConversation(incoming()) &&
+        conversationId == incoming().coachUid + '__' + incoming().memberEmailKey &&
+        incoming().lastMessageSenderUid == request.auth.uid &&
+        incoming().lastMessageAt == request.time &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isCoach() &&
+            incoming().coachUid == request.auth.uid &&
+            incoming().lastMessageSenderRole == 'coach' &&
+            incoming().coachUnreadCount == 0 &&
+            incoming().memberUnreadCount == 1 &&
+            incoming().memberEmail != request.auth.token.email.lower()
+          ) ||
+          (
+            incoming().memberEmail == request.auth.token.email.lower() &&
+            incoming().coachUid != request.auth.uid &&
+            incoming().memberUid == request.auth.uid &&
+            incoming().lastMessageSenderRole == 'member' &&
+            incoming().memberUnreadCount == 0 &&
+            incoming().coachUnreadCount == 1 &&
+            (
+              exists(/databases/$(database)/documents/coachDirectory/$(incoming().coachUid)) ||
+              exists(/databases/$(database)/documents/admins/$(incoming().coachUid))
+            )
+          )
+        );
+
+      allow update: if isValidId(conversationId) &&
+        hasAuthenticatedEmail() &&
+        isValidConversation(incoming()) &&
+        incoming().coachUid == existing().coachUid &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().memberEmailKey == existing().memberEmailKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isCoach() &&
+            existing().coachUid == request.auth.uid &&
+            incoming().lastMessageSenderRole == 'coach' &&
+            incoming().lastMessageSenderUid == request.auth.uid &&
+            incoming().lastMessageAt == request.time &&
+            incoming().coachUnreadCount == 0 &&
+            incoming().memberUnreadCount == existing().memberUnreadCount + 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'coachName', 'coachPhotoUrl',
+              'lastMessageText', 'lastMessageSenderRole', 'lastMessageSenderUid', 'lastMessageAt',
+              'coachUnreadCount', 'memberUnreadCount', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().memberEmail == request.auth.token.email.lower() &&
+            existing().coachUid != request.auth.uid &&
+            incoming().memberUid == request.auth.uid &&
+            incoming().lastMessageSenderRole == 'member' &&
+            incoming().lastMessageSenderUid == request.auth.uid &&
+            incoming().lastMessageAt == request.time &&
+            incoming().memberUnreadCount == 0 &&
+            incoming().coachUnreadCount == existing().coachUnreadCount + 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'memberUid', 'memberName', 'memberPhotoUrl',
+              'lastMessageText', 'lastMessageSenderRole', 'lastMessageSenderUid', 'lastMessageAt',
+              'coachUnreadCount', 'memberUnreadCount', 'updatedAt'
+            ])
+          ) ||
+          (
+            isCoach() &&
+            existing().coachUid == request.auth.uid &&
+            incoming().coachUnreadCount == 0 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['coachUnreadCount', 'updatedAt'])
+          ) ||
+          (
+            existing().memberEmail == request.auth.token.email.lower() &&
+            existing().coachUid != request.auth.uid &&
+            incoming().memberUid == request.auth.uid &&
+            incoming().memberUnreadCount == 0 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['memberUnreadCount', 'memberUid', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(conversationId) && (
+        isAdmin() ||
+        (
+          hasAuthenticatedEmail() &&
+          resource != null &&
+          existing().memberEmail == request.auth.token.email.lower()
+        )
+      );
+
+      match /messages/{messageId} {
+        allow get: if isValidId(conversationId) &&
+          isValidId(messageId) &&
+          hasAuthenticatedEmail() &&
+          exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
+          (
+            get(/databases/$(database)/documents/conversations/$(conversationId)).data.coachUid == request.auth.uid ||
+            get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberEmail == request.auth.token.email.lower()
+          );
+
+        allow list: if hasAuthenticatedEmail() && (
+          resource.data.coachUid == request.auth.uid ||
+          resource.data.memberEmail == request.auth.token.email.lower()
+        );
+
+        allow create: if hasAuthenticatedEmail() &&
+          isValidId(conversationId) &&
+          isValidId(messageId) &&
+          isValidDirectMessage(incoming()) &&
+          incoming().senderUid == request.auth.uid &&
+          incoming().senderEmail == request.auth.token.email.lower() &&
+          (!('likedByCoach' in incoming()) || incoming().likedByCoach == false) &&
+          (!('likedByMember' in incoming()) || incoming().likedByMember == false) &&
+          (!('updatedAt' in incoming()) || incoming().updatedAt == request.time) &&
+          incoming().conversationId == conversationId &&
+          incoming().createdAt == request.time &&
+          existsAfter(/databases/$(database)/documents/conversations/$(conversationId)) &&
+          incoming().coachUid == getAfter(/databases/$(database)/documents/conversations/$(conversationId)).data.coachUid &&
+          incoming().memberEmail == getAfter(/databases/$(database)/documents/conversations/$(conversationId)).data.memberEmail &&
+          getAfter(/databases/$(database)/documents/conversations/$(conversationId)).data.lastMessageSenderUid == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/conversations/$(conversationId)).data.lastMessageSenderRole == incoming().senderRole &&
+          getAfter(/databases/$(database)/documents/conversations/$(conversationId)).data.lastMessageAt == request.time &&
+          (
+            (
+              incoming().senderRole == 'coach' &&
+              isCoach() &&
+              incoming().coachUid == request.auth.uid &&
+              incoming().memberEmail != request.auth.token.email.lower()
+            ) ||
+            (
+              incoming().senderRole == 'member' &&
+              incoming().memberEmail == request.auth.token.email.lower() &&
+              incoming().coachUid != request.auth.uid
+            )
+          );
+
+        allow update: if isValidId(conversationId) &&
+          isValidId(messageId) &&
+          hasAuthenticatedEmail() &&
+          isValidDirectMessage(incoming()) &&
+          exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
+          incoming().conversationId == existing().conversationId &&
+          incoming().coachUid == existing().coachUid &&
+          incoming().memberEmail == existing().memberEmail &&
+          incoming().senderUid == existing().senderUid &&
+          incoming().senderEmail == existing().senderEmail &&
+          incoming().senderName == existing().senderName &&
+          incoming().senderRole == existing().senderRole &&
+          incoming().text == existing().text &&
+          incoming().get('contextEventId', '') == existing().get('contextEventId', '') &&
+          incoming().get('contextEventTitle', '') == existing().get('contextEventTitle', '') &&
+          incoming().createdAt == existing().createdAt &&
+          ('updatedAt' in incoming()) &&
+          incoming().updatedAt == request.time &&
+          (
+            (
+              isCoach() &&
+              existing().coachUid == request.auth.uid &&
+              get(/databases/$(database)/documents/conversations/$(conversationId)).data.coachUid == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['likedByCoach', 'updatedAt']) &&
+              ('likedByCoach' in incoming()) &&
+              incoming().likedByCoach is bool
+            ) ||
+            (
+              existing().memberEmail == request.auth.token.email.lower() &&
+              existing().coachUid != request.auth.uid &&
+              get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberEmail == request.auth.token.email.lower() &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['likedByMember', 'updatedAt']) &&
+              ('likedByMember' in incoming()) &&
+              incoming().likedByMember is bool
+            )
+          );
+
+        allow delete: if isValidId(conversationId) &&
+          isValidId(messageId) &&
+          exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
+          (
+            isAdmin() ||
+            (
+              hasAuthenticatedEmail() &&
+              resource != null &&
+              get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberEmail == request.auth.token.email.lower() &&
+              existing().memberEmail == request.auth.token.email.lower()
+            )
+          );
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // /memberSchedules/{sessionId}
+    // Private personalized weekly coaching/training schedule per member
+    // -------------------------------------------------------------------------
+    function isValidExerciseParams(params) {
+      return params is map &&
+        params.keys().hasAll([
+          'repetitions', 'durationSeconds', 'setsOrRounds',
+          'intraSetPauseSeconds', 'restBetweenRoundsSeconds'
+        ]) &&
+        params.keys().hasOnly([
+          'repetitions', 'durationSeconds', 'setsOrRounds',
+          'intraSetPauseSeconds', 'restBetweenRoundsSeconds'
+        ]) &&
+        params.repetitions is int && params.repetitions >= 0 && params.repetitions <= 500 &&
+        params.durationSeconds is int && params.durationSeconds >= 0 && params.durationSeconds <= 7200 &&
+        params.setsOrRounds is int && params.setsOrRounds >= 1 && params.setsOrRounds <= 50 &&
+        params.intraSetPauseSeconds is int && params.intraSetPauseSeconds >= 0 && params.intraSetPauseSeconds <= 600 &&
+        params.restBetweenRoundsSeconds is int && params.restBetweenRoundsSeconds >= 0 && params.restBetweenRoundsSeconds <= 1800;
+    }
+
+    function isValidScheduledExercise(item) {
+      return item is map &&
+        item.keys().hasAll([
+          'exerciseId', 'name', 'category',
+          'repetitions', 'durationSeconds', 'setsOrRounds',
+          'intraSetPauseSeconds', 'restBetweenRoundsSeconds', 'notes'
+        ]) &&
+        item.keys().hasOnly([
+          'exerciseId', 'name', 'category',
+          'repetitions', 'durationSeconds', 'setsOrRounds',
+          'intraSetPauseSeconds', 'restBetweenRoundsSeconds', 'notes'
+        ]) &&
+        isValidId(item.exerciseId) &&
+        item.name is string && item.name.size() >= 2 && item.name.size() <= 100 &&
+        item.category in ['strength', 'running', 'mobility'] &&
+        item.repetitions is int && item.repetitions >= 0 && item.repetitions <= 500 &&
+        item.durationSeconds is int && item.durationSeconds >= 0 && item.durationSeconds <= 7200 &&
+        item.setsOrRounds is int && item.setsOrRounds >= 1 && item.setsOrRounds <= 50 &&
+        item.intraSetPauseSeconds is int && item.intraSetPauseSeconds >= 0 && item.intraSetPauseSeconds <= 600 &&
+        item.restBetweenRoundsSeconds is int && item.restBetweenRoundsSeconds >= 0 && item.restBetweenRoundsSeconds <= 1800 &&
+        item.notes is string && item.notes.size() <= 240;
+    }
+
+    function isValidMemberScheduleSession(data) {
+      return data.keys().hasAll([
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'title', 'discipline', 'notes', 'location',
+        'startAt', 'durationMinutes', 'coachUid', 'coachName',
+        'createdByUid', 'createdByRole', 'completed',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'title', 'discipline', 'notes', 'location',
+        'startAt', 'durationMinutes', 'coachUid', 'coachName',
+        'objective', 'exercises',
+        'isPaid', 'priceCents', 'currency', 'paymentMode',
+        'paymentStatus', 'paymentMethod', 'paymentReference',
+        'cardBrand', 'cardLast4', 'paidAt',
+        'createdByUid', 'createdByRole', 'completed',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidEmail(data.memberEmail) &&
+      isValidEmailKey(data.memberEmailKey) &&
+      data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 125 &&
+      data.title is string && data.title.size() >= 2 && data.title.size() <= 100 &&
+      isValidDiscipline(data.discipline) &&
+      data.notes is string && data.notes.size() <= 600 &&
+      data.location is string && data.location.size() <= 120 &&
+      data.startAt is timestamp &&
+      data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 240 &&
+      data.coachUid is string && data.coachUid.size() <= 128 &&
+      (data.coachUid == '' || isValidId(data.coachUid)) &&
+      data.coachName is string && data.coachName.size() <= 80 &&
+      (!('objective' in data) || (data.objective is string && data.objective.size() <= 120)) &&
+      (!('exercises' in data) || (
+        data.exercises is list &&
+        data.exercises.size() <= 25 &&
+        (data.exercises.size() == 0 || isValidScheduledExercise(data.exercises[0]))
+      )) &&
+      (!('isPaid' in data) || data.isPaid is bool) &&
+      (!('priceCents' in data) || (data.priceCents is int && data.priceCents >= 0 && data.priceCents <= 200000)) &&
+      (!('currency' in data) || data.currency == 'EUR') &&
+      (!('paymentMode' in data) || data.paymentMode in ['online', 'onsite', 'both']) &&
+      (!('paymentStatus' in data) || data.paymentStatus in ['free', 'paid', 'pending']) &&
+      (!('paymentMethod' in data) || data.paymentMethod in ['free', 'card', 'onsite']) &&
+      (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 64)) &&
+      (!('cardBrand' in data) || (data.cardBrand is string && data.cardBrand.size() <= 24)) &&
+      (!('cardLast4' in data) || (data.cardLast4 is string && (data.cardLast4.size() == 0 || (data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$'))))) &&
+      (!('paidAt' in data) || data.paidAt == null || data.paidAt is timestamp) &&
+      (
+        data.get('isPaid', false) == false
+          ? data.get('priceCents', 0) == 0
+          : (
+              data.get('priceCents', 0) >= 100 &&
+              data.get('priceCents', 0) <= 200000 &&
+              data.get('currency', 'EUR') == 'EUR' &&
+              data.get('paymentMode', 'online') in ['online', 'onsite', 'both'] &&
+              data.get('paymentStatus', 'pending') in ['pending', 'paid']
+            )
+      ) &&
+      isValidId(data.createdByUid) &&
+      data.createdByRole in ['coach', 'member'] &&
+      data.completed is bool &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isMyAttachedSchedule(sessData) {
+      return isBootstrappedAdmin() || (
+        isCoach() &&
+        sessData.get('coachUid', '') == request.auth.uid
+      );
+    }
+
+    match /memberSchedules/{sessionId} {
+      allow get: if isValidId(sessionId) && (
+        (resource == null && isAdmin()) ||
+        (resource != null && (
+          isMyAttachedSchedule(existing()) ||
+          (hasAuthenticatedEmail() && existing().memberEmail == request.auth.token.email.lower())
+        ))
+      );
+
+      allow list: if isBootstrappedAdmin() ||
+        (isCoach() && resource.data.coachUid == request.auth.uid) ||
+        (
+          hasAuthenticatedEmail() &&
+          resource.data.memberEmail == request.auth.token.email.lower()
+        );
+
+      allow create: if hasAuthenticatedEmail() &&
+        isValidId(sessionId) &&
+        isValidMemberScheduleSession(incoming()) &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        (isBootstrappedAdmin() || incoming().coachUid == request.auth.uid) &&
+        incoming().createdByRole == 'coach' &&
+        (
+          (incoming().get('isPaid', false) == false && incoming().get('priceCents', 0) == 0) ||
+          (incoming().get('isPaid', false) == true && incoming().get('priceCents', 0) >= 100)
+        );
+
+      allow update: if isValidId(sessionId) &&
+        hasAuthenticatedEmail() &&
+        isValidMemberScheduleSession(incoming()) &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().memberEmailKey == existing().memberEmailKey &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdByRole == existing().createdByRole &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isMyAttachedSchedule(existing()) &&
+            (isBootstrappedAdmin() || incoming().coachUid == existing().coachUid) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'memberName', 'title', 'discipline', 'notes', 'location',
+              'startAt', 'durationMinutes', 'coachUid', 'coachName',
+              'objective', 'exercises', 'completed',
+              'isPaid', 'priceCents', 'currency', 'paymentMode',
+              'paymentStatus', 'paymentMethod', 'paymentReference',
+              'cardBrand', 'cardLast4', 'paidAt', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().memberEmail == request.auth.token.email.lower() &&
+            (
+              (
+                (existing().get('isPaid', false) == false || existing().get('paymentStatus', 'free') == 'paid') &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt'])
+              ) ||
+              (
+                existing().createdByRole == 'coach' &&
+                existing().get('isPaid', false) == true &&
+                existing().get('paymentStatus', 'pending') == 'pending' &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'paymentStatus', 'paymentMethod', 'paymentReference',
+                  'cardBrand', 'cardLast4', 'paidAt', 'updatedAt'
+                ]) &&
+                (
+                  (
+                    incoming().get('paymentMethod', '') == 'card' &&
+                    existing().get('paymentMode', 'online') in ['online', 'both'] &&
+                    incoming().get('paymentStatus', '') == 'paid' &&
+                    incoming().get('cardLast4', '').size() == 4 &&
+                    incoming().get('paymentReference', '').size() >= 6 &&
+                    incoming().get('paidAt', null) == request.time
+                  ) ||
+                  (
+                    incoming().get('paymentMethod', '') == 'onsite' &&
+                    existing().get('paymentMode', 'online') in ['onsite', 'both'] &&
+                    incoming().get('paymentStatus', '') == 'pending' &&
+                    incoming().get('paymentReference', '').size() >= 6 &&
+                    incoming().get('paidAt', null) == null
+                  )
+                )
+              )
+            )
+          )
+        );
+
+      allow delete: if isValidId(sessionId) && isMyAttachedSchedule(existing());
+    }
+
+    // -------------------------------------------------------------------------
+    // /exercises/{exerciseId}
+    // Coach-only exercise library (strength, running, mobility)
+    // -------------------------------------------------------------------------
+    function isValidExercise(data) {
+      return data.keys().hasAll([
+        'name', 'category', 'targetObjectives', 'description',
+        'defaultParams', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'category', 'targetObjectives', 'description',
+        'defaultParams', 'intensityHint', 'isPreset',
+        'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+      data.category in ['strength', 'running', 'mobility'] &&
+      data.targetObjectives is list &&
+      data.targetObjectives.size() <= 8 &&
+      (
+        data.targetObjectives.size() == 0 ||
+        (data.targetObjectives[0] is string && data.targetObjectives[0].size() >= 1 && data.targetObjectives[0].size() <= 60)
+      ) &&
+      data.description is string && data.description.size() <= 500 &&
+      isValidExerciseParams(data.defaultParams) &&
+      (!('intensityHint' in data) || (data.intensityHint is string && data.intensityHint.size() <= 80)) &&
+      (!('isPreset' in data) || data.isPreset is bool) &&
+      isValidId(data.createdBy) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /exercises/{exerciseId} {
+      allow get: if isValidId(exerciseId) && isAdmin();
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(exerciseId) &&
+        isValidExercise(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(exerciseId) &&
+        isValidExercise(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'category', 'targetObjectives', 'description',
+          'defaultParams', 'intensityHint', 'isPreset', 'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(exerciseId);
+    }
+
+    // -------------------------------------------------------------------------
+    // /trainingPrograms/{programId}
+    // Personalized running programs (5km: 10/8w, 10km: 12/10w, 21km: 14/12w, 42km: 16/14w)
+    // Optional payment (isPaid=false for free/offert or isPaid=true >= 100 cents)
+    // with Day 1 VMA test & calibrated training paces
+    // -------------------------------------------------------------------------
+    function isValidProgramDurationForDistanceAndLevel(data) {
+      return (
+        (data.distance == '5km' && data.durationWeeks in [8, 10]) ||
+        (data.distance == '10km' && data.durationWeeks in [10, 12]) ||
+        (data.distance == '21km' && data.durationWeeks in [12, 14]) ||
+        (data.distance == '42km' && data.durationWeeks in [14, 16])
+      ) && (
+        !('level' in data) ||
+        (data.level == 'beginner' && (
+          (data.distance == '5km' && data.durationWeeks == 10) ||
+          (data.distance == '10km' && data.durationWeeks == 12) ||
+          (data.distance == '21km' && data.durationWeeks == 14) ||
+          (data.distance == '42km' && data.durationWeeks == 16)
+        )) ||
+        (data.level in ['regular', 'experienced'] && (
+          (data.distance == '5km' && data.durationWeeks == 8) ||
+          (data.distance == '10km' && data.durationWeeks == 10) ||
+          (data.distance == '21km' && data.durationWeeks == 12) ||
+          (data.distance == '42km' && data.durationWeeks == 14)
+        ))
+      );
+    }
+
+    function isValidProgramSessionOverride(item) {
+      return item is map &&
+        item.keys().hasAll([
+          'sessionKey', 'title', 'durationMinutes', 'coachNotes', 'exercises', 'updatedAtMs'
+        ]) &&
+        item.keys().hasOnly([
+          'sessionKey', 'title', 'durationMinutes', 'coachNotes', 'exercises', 'updatedAtMs'
+        ]) &&
+        item.sessionKey is string &&
+        item.sessionKey.size() >= 3 &&
+        item.sessionKey.size() <= 32 &&
+        item.sessionKey.matches('^w[0-9]{1,2}-s[1-6]$') &&
+        item.title is string &&
+        item.title.size() >= 2 &&
+        item.title.size() <= 100 &&
+        item.durationMinutes is int &&
+        item.durationMinutes >= 15 &&
+        item.durationMinutes <= 240 &&
+        item.coachNotes is string &&
+        item.coachNotes.size() <= 600 &&
+        item.exercises is list &&
+        item.exercises.size() <= 25 &&
+        (item.exercises.size() == 0 || isValidScheduledExercise(item.exercises[0])) &&
+        item.updatedAtMs is int &&
+        item.updatedAtMs >= 0;
+    }
+
+    function isValidTrainingProgram(data) {
+      return data.keys().hasAll([
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'title', 'distance', 'durationWeeks', 'sessionsPerWeek', 'preferredDays',
+        'targetTimeSeconds', 'startAt',
+        'vmaTestStatus', 'vmaKmh', 'vmaTestDistanceMeters', 'vmaTestDurationSeconds',
+        'completedSessionKeys', 'notes', 'coachUid', 'coachName',
+        'isPaid', 'priceCents', 'currency', 'paymentMode',
+        'paymentStatus', 'paymentMethod', 'paymentReference',
+        'cardBrand', 'cardLast4', 'status', 'createdByUid',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'memberEmail', 'memberEmailKey', 'memberName',
+        'title', 'distance', 'level', 'durationWeeks', 'sessionsPerWeek', 'preferredDays',
+        'targetTimeSeconds', 'startAt',
+        'vmaTestStatus', 'vmaKmh', 'vmaTestDistanceMeters', 'vmaTestDurationSeconds', 'vmaTestedAt',
+        'completedSessionKeys', 'sessionOverrides', 'notes', 'coachUid', 'coachName',
+        'isPaid', 'priceCents', 'currency', 'paymentMode',
+        'paymentStatus', 'paymentMethod', 'paymentReference',
+        'cardBrand', 'cardLast4', 'paidAt', 'status', 'createdByUid',
+        'createdAt', 'updatedAt'
+      ]) &&
+      isValidEmail(data.memberEmail) &&
+      isValidEmailKey(data.memberEmailKey) &&
+      data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 125 &&
+      data.title is string && data.title.size() >= 2 && data.title.size() <= 100 &&
+      data.distance in ['5km', '10km', '21km', '42km'] &&
+      (!('level' in data) || data.level in ['beginner', 'regular', 'experienced']) &&
+      data.durationWeeks is int && data.durationWeeks in [8, 10, 12, 14, 16] &&
+      data.sessionsPerWeek is int && data.sessionsPerWeek >= 2 && data.sessionsPerWeek <= 6 &&
+      data.preferredDays is list &&
+      data.preferredDays.size() >= 1 && data.preferredDays.size() <= 7 &&
+      data.preferredDays[0] is int && data.preferredDays[0] >= 1 && data.preferredDays[0] <= 7 &&
+      data.targetTimeSeconds is int && data.targetTimeSeconds >= 600 && data.targetTimeSeconds <= 36000 &&
+      data.startAt is timestamp &&
+      data.vmaTestStatus in ['pending', 'completed'] &&
+      (data.vmaKmh is int || data.vmaKmh is float) &&
+      (
+        (data.vmaTestStatus == 'pending' && data.vmaKmh == 0) ||
+        (data.vmaTestStatus == 'completed' && data.vmaKmh >= 6 && data.vmaKmh <= 26)
+      ) &&
+      data.vmaTestDistanceMeters is int && data.vmaTestDistanceMeters >= 0 && data.vmaTestDistanceMeters <= 10000 &&
+      data.vmaTestDurationSeconds is int && data.vmaTestDurationSeconds >= 0 && data.vmaTestDurationSeconds <= 3600 &&
+      (!('vmaTestedAt' in data) || data.vmaTestedAt == null || data.vmaTestedAt is timestamp) &&
+      data.completedSessionKeys is list &&
+      data.completedSessionKeys.size() <= 100 &&
+      (
+        data.completedSessionKeys.size() == 0 ||
+        (data.completedSessionKeys[0] is string && data.completedSessionKeys[0].size() >= 3 && data.completedSessionKeys[0].size() <= 32)
+      ) &&
+      (!('sessionOverrides' in data) || (
+        data.sessionOverrides is list &&
+        data.sessionOverrides.size() <= 100 &&
+        (data.sessionOverrides.size() == 0 || isValidProgramSessionOverride(data.sessionOverrides[0]))
+      )) &&
+      data.notes is string && data.notes.size() <= 600 &&
+      isValidId(data.coachUid) &&
+      data.coachName is string && data.coachName.size() >= 1 && data.coachName.size() <= 80 &&
+      data.isPaid is bool &&
+      data.priceCents is int && data.priceCents >= 0 && data.priceCents <= 200000 &&
+      data.currency == 'EUR' &&
+      data.paymentMode in ['online', 'onsite', 'both'] &&
+      data.paymentStatus in ['free', 'pending', 'paid'] &&
+      data.paymentMethod in ['', 'free', 'card', 'onsite'] &&
+      (
+        (
+          data.isPaid == false &&
+          data.priceCents == 0 &&
+          data.paymentStatus == 'free' &&
+          data.paymentMethod in ['', 'free']
+        ) ||
+        (
+          data.isPaid == true &&
+          data.priceCents >= 100 &&
+          data.paymentStatus in ['pending', 'paid'] &&
+          data.paymentMethod in ['', 'card', 'onsite']
+        )
+      ) &&
+      data.paymentReference is string && data.paymentReference.size() <= 64 &&
+      data.cardBrand is string && data.cardBrand.size() <= 24 &&
+      data.cardLast4 is string && (data.cardLast4.size() == 0 || (data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$'))) &&
+      (!('paidAt' in data) || data.paidAt == null || data.paidAt is timestamp) &&
+      data.status in ['awaiting_payment', 'awaiting_vma', 'active', 'completed'] &&
+      isValidId(data.createdByUid) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isMyAttachedProgram(progData) {
+      return isBootstrappedAdmin() || (
+        isCoach() &&
+        progData.get('coachUid', '') == request.auth.uid
+      );
+    }
+
+    match /trainingPrograms/{programId} {
+      allow get: if isValidId(programId) && (
+        (resource == null && isAdmin()) ||
+        (resource != null && (
+          isMyAttachedProgram(existing()) ||
+          (hasAuthenticatedEmail() && existing().memberEmail == request.auth.token.email.lower())
+        ))
+      );
+
+      allow list: if isBootstrappedAdmin() ||
+        (isCoach() && resource.data.coachUid == request.auth.uid) ||
+        (
+          hasAuthenticatedEmail() &&
+          resource.data.memberEmail == request.auth.token.email.lower()
+        );
+
+      allow create: if isAdmin() &&
+        isValidId(programId) &&
+        isValidTrainingProgram(incoming()) &&
+        isValidProgramDurationForDistanceAndLevel(incoming()) &&
+        (isBootstrappedAdmin() || incoming().coachUid == request.auth.uid) &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(programId) &&
+        hasAuthenticatedEmail() &&
+        isValidTrainingProgram(incoming()) &&
+        incoming().memberEmail == existing().memberEmail &&
+        incoming().memberEmailKey == existing().memberEmailKey &&
+        incoming().distance == existing().distance &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isMyAttachedProgram(existing()) &&
+            (isBootstrappedAdmin() || incoming().coachUid == existing().coachUid) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'memberName', 'title', 'level', 'durationWeeks', 'sessionsPerWeek', 'preferredDays',
+              'targetTimeSeconds', 'startAt', 'notes', 'coachUid', 'coachName',
+              'isPaid', 'priceCents', 'paymentMode', 'paymentStatus', 'paymentMethod',
+              'paymentReference', 'cardBrand', 'cardLast4', 'paidAt',
+              'vmaTestStatus', 'vmaKmh', 'vmaTestDistanceMeters', 'vmaTestDurationSeconds', 'vmaTestedAt',
+              'completedSessionKeys', 'sessionOverrides', 'status', 'updatedAt'
+            ]) &&
+            (
+              (incoming().durationWeeks == existing().durationWeeks && incoming().get('level', '') == existing().get('level', '')) ||
+              isValidProgramDurationForDistanceAndLevel(incoming())
+            )
+          ) ||
+          (
+            existing().memberEmail == request.auth.token.email.lower() &&
+            incoming().durationWeeks == existing().durationWeeks &&
+            incoming().get('level', '') == existing().get('level', '') &&
+            (
+              (
+                existing().isPaid == true &&
+                existing().paymentStatus == 'pending' &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'paymentStatus', 'paymentMethod', 'paymentReference',
+                  'cardBrand', 'cardLast4', 'paidAt', 'status', 'updatedAt'
+                ]) &&
+                (
+                  (
+                    incoming().paymentMethod == 'card' &&
+                    existing().paymentMode in ['online', 'both'] &&
+                    incoming().paymentStatus == 'paid' &&
+                    incoming().cardLast4.size() == 4 &&
+                    incoming().paymentReference.size() >= 6 &&
+                    incoming().get('paidAt', null) == request.time &&
+                    incoming().status == (existing().vmaTestStatus == 'completed' ? 'active' : 'awaiting_vma')
+                  ) ||
+                  (
+                    incoming().paymentMethod == 'onsite' &&
+                    existing().paymentMode in ['onsite', 'both'] &&
+                    incoming().paymentStatus == 'pending' &&
+                    incoming().paymentReference.size() >= 6 &&
+                    incoming().get('paidAt', null) == null &&
+                    incoming().status == 'awaiting_payment'
+                  )
+                )
+              ) ||
+              (
+                (existing().isPaid == false || existing().paymentStatus == 'paid') &&
+                request.time >= existing().startAt &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'vmaTestStatus', 'vmaKmh', 'vmaTestDistanceMeters',
+                  'vmaTestDurationSeconds', 'vmaTestedAt', 'status', 'updatedAt'
+                ]) &&
+                incoming().vmaTestStatus == 'completed' &&
+                incoming().vmaKmh >= 6 &&
+                incoming().vmaKmh <= 26 &&
+                incoming().get('vmaTestedAt', null) == request.time &&
+                incoming().status == 'active'
+              ) ||
+              (
+                (existing().isPaid == false || existing().paymentStatus == 'paid') &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'completedSessionKeys', 'status', 'updatedAt'
+                ]) &&
+                incoming().status in ['awaiting_vma', 'active', 'completed']
+              )
+            )
+          )
+        );
+
+      allow delete: if isValidId(programId) && isMyAttachedProgram(existing());
+    }
+  }
+}

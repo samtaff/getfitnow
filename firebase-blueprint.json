@@ -1,0 +1,1888 @@
+{
+  "entities": {
+    "Event": {
+      "title": "Event",
+      "description": "Un événement ou séance sportive créée par le coach.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Nom de la séance sportive."
+        },
+        "discipline": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "Catégorie ou discipline sportive (prédéfinie ou personnalisée par le coach)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 600,
+          "description": "Détails du programme et matériel requis."
+        },
+        "externalUrl": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^$|^https?://[^\\s]+$",
+          "description": "Lien externe optionnel associé à l'événement (parcours, billetterie, document)."
+        },
+        "coverImageUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Image ou visuel d'en-tête optionnel de l'événement (Data URL compressée ou URL https)."
+        },
+        "coverImagePosition": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^$|^[0-9]{1,3}% [0-9]{1,3}%$",
+          "description": "Positionnement X/Y en pourcentage (ex. '50% 35%') pour recadrer le visuel d'en-tête."
+        },
+        "location": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Lieu ou adresse précise de la séance."
+        },
+        "city": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Ville de l'événement pour la recherche par ville."
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Région de l'événement pour la recherche par région."
+        },
+        "hasCoords": {
+          "type": "boolean",
+          "description": "Indique si des coordonnées géographiques sont enregistrées."
+        },
+        "lat": {
+          "type": "number",
+          "description": "Latitude de l'événement (0 si non définie)."
+        },
+        "lng": {
+          "type": "number",
+          "description": "Longitude de l'événement (0 si non définie)."
+        },
+        "coachName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 200,
+          "description": "Nom du ou des coachs encadrant la séance."
+        },
+        "coachNames": {
+          "type": "array",
+          "description": "Liste des noms des coachs encadrant la séance (1 à 10)."
+        },
+        "coachUids": {
+          "type": "array",
+          "description": "Liste des UID des coachs administrateurs affectés à la séance (0 à 10)."
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date et heure de début de la séance (Timestamp Firestore)."
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "description": "Durée de la séance en minutes (15 à 240)."
+        },
+        "isUnlimitedCapacity": {
+          "type": "boolean",
+          "description": "Indique si la capacité de places est illimitée."
+        },
+        "maxCapacity": {
+          "type": "integer",
+          "description": "Nombre maximal de participants autorisés (0 si illimité, sinon 1 à 200)."
+        },
+        "registeredCount": {
+          "type": "integer",
+          "description": "Nombre actuel d'adhérents inscrits."
+        },
+        "lastRegId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de la dernière inscription pour garantir l'atomicité."
+        },
+        "likesCount": {
+          "type": "integer",
+          "description": "Nombre total de mentions J'aime sur l'événement."
+        },
+        "lastLikeId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de la dernière mention J'aime ou retrait pour garantir l'atomicité."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["published", "cancelled"],
+          "description": "Statut de l'événement."
+        },
+        "cancelReason": {
+          "type": "string",
+          "enum": ["manual", "no_registrants", ""],
+          "description": "Motif d'annulation (manuelle par le coach ou historique)."
+        },
+        "bookingCutoffMinutes": {
+          "type": "integer",
+          "description": "Délai de clôture des inscriptions en minutes avant le début de la séance (0 à 10080 ; 0 = ouvert jusqu'au début)."
+        },
+        "disableAutoClose": {
+          "type": "boolean",
+          "description": "Champ historique conservé pour rétrocompatibilité."
+        },
+        "isPaid": {
+          "type": "boolean",
+          "description": "Indique si l'événement est payant."
+        },
+        "priceCents": {
+          "type": "integer",
+          "description": "Tarif de la séance en centimes d'euro (0 si gratuit, sinon 100 à 100000)."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["EUR"],
+          "description": "Devise du tarif."
+        },
+        "paymentMode": {
+          "type": "string",
+          "enum": ["online", "onsite", "both"],
+          "description": "Modes de règlement acceptés pour les événements payants."
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID du coach créateur."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de création."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de mise à jour."
+        }
+      },
+      "required": [
+        "title",
+        "discipline",
+        "description",
+        "location",
+        "city",
+        "hasCoords",
+        "lat",
+        "lng",
+        "coachName",
+        "startAt",
+        "durationMinutes",
+        "isUnlimitedCapacity",
+        "maxCapacity",
+        "registeredCount",
+        "lastRegId",
+        "status",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "Inscription gratuite d'un adhérent à un événement sportif.",
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de l'événement réservé."
+        },
+        "eventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Titre de l'événement au moment de l'inscription."
+        },
+        "eventStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date de début de l'événement (Timestamp Firestore)."
+        },
+        "eventDurationMinutes": {
+          "type": "integer",
+          "description": "Durée prévue de la séance en minutes."
+        },
+        "eventEndAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date et heure de fin de la séance (Timestamp Firestore)."
+        },
+        "firstName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Prénom de l'adhérent."
+        },
+        "lastName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Nom de famille de l'adhérent."
+        },
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Adresse email de l'adhérent."
+        },
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Empreinte normalisée de l'email pour éviter les doublons."
+        },
+        "attended": {
+          "type": "boolean",
+          "description": "Présence confirmée par le coach ou validée par l'adhérent après la séance."
+        },
+        "memberValidated": {
+          "type": "boolean",
+          "description": "Indique si l'adhérent a validé lui-même sa séance en fin de session."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "cancelled"],
+          "description": "Statut de l'inscription."
+        },
+        "amountCents": {
+          "type": "integer",
+          "description": "Montant facturé en centimes d'euro (0 si gratuit)."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["EUR"],
+          "description": "Devise du paiement."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["free", "paid", "pending", "refunded"],
+          "description": "Statut du règlement de l'inscription."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["free", "card", "onsite"],
+          "description": "Mode de règlement choisi."
+        },
+        "paymentReference": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Référence unique de transaction ou de réservation."
+        },
+        "cardBrand": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "Réseau de carte bancaire masqué (Visa, Mastercard, CB, Amex)."
+        },
+        "cardLast4": {
+          "type": "string",
+          "maxLength": 4,
+          "description": "4 derniers chiffres de la carte (aucun numéro complet ou CVC stocké)."
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de confirmation du paiement."
+        },
+        "isGuest": {
+          "type": "boolean",
+          "description": "Indique si le participant est un invité inscrit par un autre adhérent."
+        },
+        "invitedByEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Email normalisé de l'adhérent hôte ayant invité ce participant."
+        },
+        "invitedByEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Empreinte normalisée de l'email de l'adhérent hôte."
+        },
+        "invitedByName": {
+          "type": "string",
+          "maxLength": 125,
+          "description": "Nom complet de l'adhérent hôte ayant invité ce participant."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur d'inscription."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de mise à jour."
+        }
+      },
+      "required": [
+        "eventId",
+        "eventTitle",
+        "eventStartAt",
+        "firstName",
+        "lastName",
+        "email",
+        "emailKey",
+        "attended",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MemberProfile": {
+      "title": "MemberProfile",
+      "description": "Fiche de suivi adhérent gérée exclusivement par le coach.",
+      "type": "object",
+      "properties": {
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant unique dérivé de l'email."
+        },
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Email de l'adhérent."
+        },
+        "firstName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Prénom de l'adhérent."
+        },
+        "lastName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Nom de l'adhérent."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Téléphone optionnel."
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Objectif sportif de l'adhérent."
+        },
+        "birthDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Date de naissance de l'adhérent au format YYYY-MM-DD."
+        },
+        "fitnessLevel": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "advanced", ""],
+          "description": "Niveau sportif de l'adhérent (débutant, intermédiaire, avancé)."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Notes de suivi, blessures ou progression."
+        },
+        "followUpStatus": {
+          "type": "string",
+          "enum": ["active", "to_follow_up", "paused"],
+          "description": "Statut de suivi du coach."
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 80000,
+          "description": "Photo de profil de l'adhérent (JPEG compact encodé en base64 ou URL)."
+        },
+        "referentCoachUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^$|^[a-zA-Z0-9_\\-]+$",
+          "description": "UID du coach référent auquel l'adhérent est rattaché (David Frosio par défaut)."
+        },
+        "referentCoachName": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Nom du coach référent de l'adhérent."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de création."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de mise à jour."
+        }
+      },
+      "required": [
+        "emailKey",
+        "email",
+        "firstName",
+        "lastName",
+        "phone",
+        "goal",
+        "notes",
+        "followUpStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Coach administrateur autorisé à gérer les événements, les adhérents et les accès coachs.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Téléphone professionnel du coach."
+        },
+        "specialty": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Spécialités sportives du coach."
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Ville principale d'intervention."
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Région d'intervention."
+        },
+        "certifications": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Diplômes et certifications sportives."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 600,
+          "description": "Présentation et approche pédagogique du coach."
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 80000,
+          "description": "Photo de profil du coach (JPEG compact encodé en base64 ou URL)."
+        },
+        "pricing": {
+          "type": "object",
+          "description": "Tarifs personnalisés proposés par le coach (en centimes d'euro, 0 si non défini).",
+          "properties": {
+            "groupSessionPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "customSessionPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program5kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program10kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program21kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program42kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "pricingNotes": { "type": "string", "maxLength": 300 }
+          }
+        },
+        "role": {
+          "type": "string",
+          "enum": ["coach", "coach_admin"]
+        },
+        "adminRequestStatus": {
+          "type": "string",
+          "enum": ["none", "pending", "rejected"],
+          "description": "Statut de la demande d'un coach standard pour obtenir le rôle administrateur."
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "isPrimary": {
+          "type": "boolean"
+        },
+        "createdByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "emailKey",
+        "displayName",
+        "role",
+        "active",
+        "isPrimary",
+        "createdByUid",
+        "createdByEmail",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CoachAccessRequest": {
+      "title": "CoachAccessRequest",
+      "description": "Demande d'accès envoyée par un utilisateur aux coachs administrateurs.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "reviewedByEmail": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "emailKey",
+        "displayName",
+        "message",
+        "status",
+        "reviewedByEmail",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Nomination d'un coach administrateur par email avant sa première connexion.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "enum": ["coach", "coach_admin"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "disabled", "claimed"]
+        },
+        "invitedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "invitedByEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120
+        },
+        "claimedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "email",
+        "emailKey",
+        "displayName",
+        "role",
+        "status",
+        "invitedByUid",
+        "invitedByEmail",
+        "claimedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DisciplineConfig": {
+      "title": "DisciplineConfig",
+      "description": "Discipline sportive personnalisée, son code couleur et son picto associé.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "colorKey": {
+          "type": "string",
+          "enum": ["emerald", "orange", "sky", "violet", "rose", "teal", "amber", "indigo", "lime", "slate", "cyan", "fuchsia", "blue", "pink"]
+        },
+        "iconKey": {
+          "type": "string",
+          "enum": ["dumbbell", "running-shoe", "flame", "yoga", "bike", "waves", "boxing", "heart-pulse", "zap", "mountain", "music", "ball", "timer", "footprints", "target", "trophy"]
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "slug",
+        "colorKey",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CoachNotification": {
+      "title": "CoachNotification",
+      "description": "Notification en temps réel envoyée au coach concerné lors de chaque inscription d'un adhérent à un événement.",
+      "type": "object",
+      "properties": {
+        "coachUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["new_registration"]
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "eventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "eventStartAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 125
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "invitedByName": {
+          "type": "string",
+          "maxLength": 125,
+          "description": "Nom de l'adhérent hôte s'il s'agit d'un invité."
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "coachUid",
+        "type",
+        "eventId",
+        "eventTitle",
+        "eventStartAt",
+        "registrationId",
+        "memberName",
+        "memberEmail",
+        "read",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MemberNotification": {
+      "title": "MemberNotification",
+      "description": "Notification envoyée à l'adhérent (rappel de validation en fin de séance ou avis d'annulation d'un événement par le coach).",
+      "type": "object",
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "eventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "eventStartAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "eventEndAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "memberEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["validate_session", "event_cancelled"]
+        },
+        "coachName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Nom du ou des coachs encadrants lors d'une notification d'annulation."
+        },
+        "wasPaid": {
+          "type": "boolean",
+          "description": "Indique si l'inscription annulée était payante et a déclenché un remboursement."
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "validated": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "registrationId",
+        "eventId",
+        "eventTitle",
+        "eventStartAt",
+        "eventEndAt",
+        "memberEmail",
+        "memberEmailKey",
+        "type",
+        "read",
+        "validated",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Journal de paiement associé à une inscription à un événement payant.",
+      "type": "object",
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "eventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "eventStartAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "memberEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 125
+        },
+        "amountCents": {
+          "type": "integer",
+          "description": "Montant en centimes d'euro (100 à 100000)."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["EUR"]
+        },
+        "method": {
+          "type": "string",
+          "enum": ["card", "onsite"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["paid", "pending", "refunded"]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 64
+        },
+        "cardBrand": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "cardLast4": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "isGuest": {
+          "type": "boolean",
+          "description": "Indique si le paiement concerne un invité inscrit par un autre adhérent."
+        },
+        "payerEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Email de l'adhérent payeur s'il diffère du participant."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "registrationId",
+        "eventId",
+        "eventTitle",
+        "eventStartAt",
+        "memberEmail",
+        "memberEmailKey",
+        "memberName",
+        "amountCents",
+        "currency",
+        "method",
+        "status",
+        "reference",
+        "cardBrand",
+        "cardLast4",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "EventLike": {
+      "title": "EventLike",
+      "description": "Mention J'aime d'un utilisateur authentifié sur un événement sportif.",
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de l'événement aimé."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID Firebase de l'utilisateur ayant aimé l'événement."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de la mention J'aime."
+        }
+      },
+      "required": [
+        "eventId",
+        "userId",
+        "createdAt"
+      ]
+    },
+    "EventReview": {
+      "title": "EventReview",
+      "description": "Avis et commentaire publié par un adhérent après avoir participé à un événement sportif.",
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de l'événement évalué."
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identifiant de l'inscription associée (${eventId}__${emailKey})."
+        },
+        "emailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Empreinte opaque de l'email du participant."
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID Firebase de l'auteur de l'avis."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Nom public affiché (prénom + initiale du nom, sans PII)."
+        },
+        "eventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Titre de l'événement au moment de l'avis."
+        },
+        "discipline": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "Discipline de l'événement."
+        },
+        "eventStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date de début de l'événement."
+        },
+        "rating": {
+          "type": "integer",
+          "description": "Note de 1 à 5 étoiles attribuée à la séance."
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 800,
+          "description": "Commentaire détaillé de l'adhérent."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["published"],
+          "description": "Statut de publication de l'avis."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de création."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horodatage serveur de mise à jour."
+        }
+      },
+      "required": [
+        "eventId",
+        "registrationId",
+        "emailKey",
+        "authorUid",
+        "authorName",
+        "eventTitle",
+        "discipline",
+        "eventStartAt",
+        "rating",
+        "comment",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CoachDirectoryEntry": {
+      "title": "CoachDirectoryEntry",
+      "description": "Annuaire public non-PII des coachs actifs permettant aux adhérents de démarrer une conversation de suivi.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "specialty": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 80000
+        },
+        "pricing": {
+          "type": "object",
+          "description": "Tarifs personnalisés proposés par le coach (en centimes d'euro, 0 si non défini).",
+          "properties": {
+            "groupSessionPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "customSessionPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program5kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program10kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program21kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "program42kmPriceCents": { "type": "integer", "minimum": 0, "maximum": 200000 },
+            "pricingNotes": { "type": "string", "maxLength": 300 }
+          }
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "description": "Indique s'il s'agit du coach administrateur principal (David Frosio)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "active",
+        "updatedAt"
+      ]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Fil de messagerie directe 1-à-1 entre un coach et un adhérent (${coachUid}__${memberEmailKey}).",
+      "type": "object",
+      "properties": {
+        "coachUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "coachName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "coachPhotoUrl": {
+          "type": "string",
+          "maxLength": 80000
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "memberEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 125
+        },
+        "memberPhotoUrl": {
+          "type": "string",
+          "maxLength": 80000
+        },
+        "memberUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastMessageText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "lastMessageSenderRole": {
+          "type": "string",
+          "enum": ["coach", "member"]
+        },
+        "lastMessageSenderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "lastMessageAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coachUnreadCount": {
+          "type": "integer"
+        },
+        "memberUnreadCount": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "coachUid",
+        "coachName",
+        "memberEmail",
+        "memberEmailKey",
+        "memberName",
+        "memberUid",
+        "lastMessageText",
+        "lastMessageSenderRole",
+        "lastMessageSenderUid",
+        "lastMessageAt",
+        "coachUnreadCount",
+        "memberUnreadCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "Message individuel échangé entre un coach et un adhérent dans une conversation.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "coachUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 125
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["coach", "member"]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "contextEventId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "contextEventTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "likedByCoach": {
+          "type": "boolean",
+          "description": "Indique si le coach participant a liké ce message."
+        },
+        "likedByMember": {
+          "type": "boolean",
+          "description": "Indique si l'adhérent participant a liké ce message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "conversationId",
+        "coachUid",
+        "memberEmail",
+        "senderUid",
+        "senderEmail",
+        "senderName",
+        "senderRole",
+        "text",
+        "createdAt"
+      ]
+    },
+    "MemberScheduleSession": {
+      "title": "MemberScheduleSession",
+      "description": "Séance personnalisée du planning hebdomadaire d'un adhérent, créée et gérée exclusivement par un coach.",
+      "type": "object",
+      "properties": {
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "memberEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 125
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "discipline": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "durationMinutes": {
+          "type": "integer"
+        },
+        "coachUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "coachName": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "objective": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Objectif sportif ciblé par ce programme personnalisé."
+        },
+        "exercises": {
+          "type": "array",
+          "description": "Liste structurée et paramétrable (max 25) d'exercices issus de la bibliothèque (répétitions, durée, tours, pause, repos)."
+        },
+        "isPaid": {
+          "type": "boolean",
+          "description": "Indique si ce programme personnalisé coach est payant (true) ou offert gratuitement (false) pour l'adhérent."
+        },
+        "priceCents": {
+          "type": "integer",
+          "description": "Tarif du programme personnalisé en centimes d'euro (0 si offert, sinon 100 à 200000)."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["EUR"]
+        },
+        "paymentMode": {
+          "type": "string",
+          "enum": ["online", "onsite", "both"]
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["free", "paid", "pending"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["free", "card", "onsite"]
+        },
+        "paymentReference": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "cardBrand": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "cardLast4": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByRole": {
+          "type": "string",
+          "enum": ["coach"]
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "memberEmail",
+        "memberEmailKey",
+        "memberName",
+        "title",
+        "discipline",
+        "notes",
+        "location",
+        "startAt",
+        "durationMinutes",
+        "coachUid",
+        "coachName",
+        "createdByUid",
+        "createdByRole",
+        "completed",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Exercise": {
+      "title": "Exercise",
+      "description": "Exercice paramétrable de la bibliothèque du coach (renforcement musculaire, running spécifique, mobilité) utilisé pour préparer les programmes personnalisés.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "enum": ["strength", "running", "mobility"]
+        },
+        "targetObjectives": {
+          "type": "array",
+          "description": "Objectifs sportifs associés (max 8)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "defaultParams": {
+          "type": "object",
+          "description": "Paramètres par défaut : repetitions, durationSeconds, setsOrRounds, intraSetPauseSeconds, restBetweenRoundsSeconds."
+        },
+        "intensityHint": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "isPreset": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "category",
+        "targetObjectives",
+        "description",
+        "defaultParams",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TrainingProgram": {
+      "title": "TrainingProgram",
+      "description": "Programme running personnalisé payant ou offert (5km: 10/8 sem., 10km: 12/10 sem., 21km: 14/12 sem., 42km: 16/14 sem. selon le niveau) avec objectif de temps, 3 séances/sem. par défaut (2 à 6 paramétrables) et test VMA le premier jour.",
+      "type": "object",
+      "properties": {
+        "memberEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        },
+        "memberEmailKey": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 125
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "distance": {
+          "type": "string",
+          "enum": ["5km", "10km", "21km", "42km"]
+        },
+        "level": {
+          "type": "string",
+          "enum": ["beginner", "regular", "experienced"],
+          "description": "Niveau du coureur (Débutant, Régulier, Expérimenté) déterminant la durée du cycle."
+        },
+        "durationWeeks": {
+          "type": "integer",
+          "description": "Durée du programme en semaines (8 à 16 selon distance et niveau)."
+        },
+        "sessionsPerWeek": {
+          "type": "integer",
+          "description": "Nombre paramétrable de séances par semaine (3 par défaut, 2 à 6)."
+        },
+        "preferredDays": {
+          "type": "array",
+          "description": "Jours de la semaine retenus (1=Lun à 7=Dim)."
+        },
+        "targetTimeSeconds": {
+          "type": "integer",
+          "description": "Objectif de temps final de l'adhérent en secondes."
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date de début du programme (Jour 1 = Test VMA)."
+        },
+        "vmaTestStatus": {
+          "type": "string",
+          "enum": ["pending", "completed"]
+        },
+        "vmaKmh": {
+          "type": "number",
+          "description": "VMA évaluée lors du test du premier jour (en km/h, 0 si en attente)."
+        },
+        "vmaTestDistanceMeters": {
+          "type": "integer",
+          "description": "Distance parcourue lors du test VMA (en mètres)."
+        },
+        "vmaTestDurationSeconds": {
+          "type": "integer",
+          "description": "Durée du test VMA (ex. 360 s pour Demi-Cooper)."
+        },
+        "vmaTestedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedSessionKeys": {
+          "type": "array",
+          "description": "Identifiants des séances cochées comme réalisées (max 100)."
+        },
+        "sessionOverrides": {
+          "type": "array",
+          "description": "Personnalisations coach par séance (titre, durée, consignes et liste d'exercices modifiés/ajoutés/remplacés/supprimés, max 100)."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "coachUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "coachName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "isPaid": {
+          "type": "boolean"
+        },
+        "priceCents": {
+          "type": "integer",
+          "description": "Tarif du programme personnalisé en centimes d'euro (0 si offert, sinon 100 à 200000)."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["EUR"]
+        },
+        "paymentMode": {
+          "type": "string",
+          "enum": ["online", "onsite", "both"]
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["free", "pending", "paid"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["", "free", "card", "onsite"]
+        },
+        "paymentReference": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "cardBrand": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "cardLast4": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["awaiting_payment", "awaiting_vma", "active", "completed"]
+        },
+        "createdByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "memberEmail",
+        "memberEmailKey",
+        "memberName",
+        "title",
+        "distance",
+        "durationWeeks",
+        "sessionsPerWeek",
+        "preferredDays",
+        "targetTimeSeconds",
+        "startAt",
+        "vmaTestStatus",
+        "vmaKmh",
+        "vmaTestDistanceMeters",
+        "vmaTestDurationSeconds",
+        "completedSessionKeys",
+        "notes",
+        "coachUid",
+        "coachName",
+        "isPaid",
+        "priceCents",
+        "currency",
+        "paymentMode",
+        "paymentStatus",
+        "paymentMethod",
+        "paymentReference",
+        "cardBrand",
+        "cardLast4",
+        "status",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/Event" },
+      "description": "Événements et séances sportives publics en lecture (publiés/annulés) afin d'afficher le calendrier dès le démarrage."
+    },
+    "/registrations/{registrationId}": {
+      "schema": { "$ref": "#/entities/Registration" },
+      "description": "Inscriptions nominatives des adhérents (lisibles par les coachs ou l'adhérent concerné)."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Transactions et règlements des séances payantes (lisibles par les coachs ou l'adhérent concerné)."
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/MemberProfile" },
+      "description": "Fiches de profil et suivi adhérents (notes de suivi privées réservées aux coachs)."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Comptes coachs administrateurs actifs ou désactivés et leur fiche de renseignement."
+    },
+    "/coachDirectory/{coachUid}": {
+      "schema": { "$ref": "#/entities/CoachDirectoryEntry" },
+      "description": "Annuaire non-PII des coachs actifs accessible aux utilisateurs connectés pour la messagerie."
+    },
+    "/coachAccessRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/CoachAccessRequest" },
+      "description": "Demandes d'accès coach envoyées aux coachs administrateurs."
+    },
+    "/adminInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/AdminInvite" },
+      "description": "Nominations de coachs administrateurs par adresse email."
+    },
+    "/disciplines/{disciplineId}": {
+      "schema": { "$ref": "#/entities/DisciplineConfig" },
+      "description": "Disciplines sportives ajoutées par les coachs avec leur code couleur."
+    },
+    "/coachNotifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/CoachNotification" },
+      "description": "Notifications d'inscription destinées au coach créateur de chaque événement."
+    },
+    "/memberNotifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/MemberNotification" },
+      "description": "Notifications de fin de séance destinées à l'adhérent pour valider sa séance."
+    },
+    "/eventLikes/{likeId}": {
+      "schema": { "$ref": "#/entities/EventLike" },
+      "description": "Mentions J'aime par utilisateur authentifié pour chaque événement (${eventId}__${uid})."
+    },
+    "/eventReviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/EventReview" },
+      "description": "Avis et commentaires publics laissés par les adhérents après leur séance (${eventId}__${emailKey})."
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Fils de messagerie privée entre un coach et un adhérent (${coachUid}__${memberEmailKey})."
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DirectMessage" },
+      "description": "Messages directs horodatés au sein d'une conversation coach-adhérent."
+    },
+    "/memberSchedules/{sessionId}": {
+      "schema": { "$ref": "#/entities/MemberScheduleSession" },
+      "description": "Séances hebdomadaires personnalisées du programme individuel d'un adhérent (créées et modifiées uniquement par les coachs ; l'adhérent peut les consulter, régler les séances payantes et cocher sa réalisation)."
+    },
+    "/exercises/{exerciseId}": {
+      "schema": { "$ref": "#/entities/Exercise" },
+      "description": "Bibliothèque d'exercices du coach (renforcement musculaire, running spécifique, mobilité) réservée aux coachs actifs."
+    },
+    "/trainingPrograms/{programId}": {
+      "schema": { "$ref": "#/entities/TrainingProgram" },
+      "description": "Programmes running personnalisés payants ou offerts (5km, 10km, 21km, 42km) avec durée adaptée au niveau (8 à 16 semaines), 3 séances/sem. par défaut, test VMA initial et allures calculées."
+    }
+  }
+}

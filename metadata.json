@@ -1,0 +1,6 @@
+{
+  "name": "GetFitNow Event — Gestion & Réservation Coaching Sportif",
+  "description": "GetFitNow Event : plateforme de gestion d'événements sportifs, carte de localisation, recherche par ville et région, réservations gratuites avec clôture 1h avant le début et suivi des adhérents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
